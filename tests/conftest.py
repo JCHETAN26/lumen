@@ -123,7 +123,7 @@ class FakeHubApi:
         self.commits = 0
 
     def repo_info(self, repo_id: str, repo_type: str):
-        assert repo_type == "dataset"
+        assert repo_type in ("dataset", "model")
         if not self.exists:
             raise FileNotFoundError(repo_id)
         return type("Info", (), {"private": self.private})()

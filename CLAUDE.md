@@ -108,7 +108,7 @@ README's "Respectful use" section. The dataset is CC BY 4.0: cite Gurari et al.,
 **Model predictions never enter git.** Per-question outputs (`*.predictions.jsonl`: raw and
 extracted answers, P(unanswerable)) can repeat private details from the photos, this repo will
 become public, and git history is permanent.
-- They live only in the **private** Hugging Face dataset repo `JCHETAN26/lumen-predictions`
+- They live only in the **private** Hugging Face dataset repo `cjitendr/lumen-predictions`
   (`predictions.repo` in pins), uploaded by `lumen.hub`. The runner checks that the repo exists, is
   private, and is writable before any GPU time is spent, and refuses a public repo.
 - Git gets **aggregate scores and metadata only**, plus a pointer (repo, path, Hub commit revision,
@@ -126,7 +126,8 @@ become public, and git history is permanent.
 
 - Never commit secrets. `.env` and `kaggle.json` are gitignored.
 - Kaggle Secrets: `GITHUB_TOKEN` (Contents: read on this repo) and `HF_TOKEN` (fine-grained write,
-  scoped to the private predictions dataset and the adapter repo only).
+  scoped to the private predictions dataset `cjitendr/lumen-predictions` and the private adapter
+  model repo `cjitendr/lumen-adapter` only).
 
 ## Workflow
 

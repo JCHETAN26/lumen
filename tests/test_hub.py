@@ -12,7 +12,8 @@ REPO = "someone/lumen-predictions"
 
 
 def test_predictions_repo_is_pinned() -> None:
-    assert hub.predictions_repo() == "JCHETAN26/lumen-predictions"
+    assert hub.predictions_repo() == "cjitendr/lumen-predictions"
+    assert hub.adapter_repo() == "cjitendr/lumen-adapter"
 
 
 @pytest.mark.parametrize(
@@ -51,6 +52,15 @@ def test_preflight_refuses(api: FakeHubApi, match: str) -> None:
 def test_fine_grained_token_scopes(scoped: list, ok: bool) -> None:
     who = {"auth": {"accessToken": {"role": "fineGrained", "fineGrained": {"scoped": scoped}}}}
     assert hub._can_write(who, REPO) is ok
+
+
+def test_fine_grained_model_repo_scope() -> None:
+    scoped = [
+        {"entity": {"type": "model", "name": "someone/adapter"}, "permissions": ["repo.write"]}
+    ]
+    who = {"auth": {"accessToken": {"role": "fineGrained", "fineGrained": {"scoped": scoped}}}}
+    assert hub._can_write(who, "someone/adapter", "model")
+    assert not hub._can_write(who, "someone/adapter", "dataset")
 
 
 def test_upload_returns_pinned_pointer(tmp_path: Path) -> None:

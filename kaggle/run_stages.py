@@ -7,6 +7,7 @@ Stages (each writes result JSON under results/ and copies it to the download fol
     data        download + verify the pinned VizWiz files, validate annotations against the
                 image zips, build the dev split and the Mac sample ID lists      (CPU only)
     mac_sample  package the ~300 pinned val images + their annotations for the Mac   (CPU only)
+    storage_check  confirm HF_TOKEN can write to the private predictions + adapter repos
 
     baseline    zero-shot baselines (Stage 2) for the pinned models on dev or val        (GPU)
                 --dry-run prints the GPU-hour plan without loading anything
@@ -642,6 +643,27 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     return 0
 
 
+# -------------------------------------------------------------------------- storage_check
+
+
+def cmd_storage_check(args: argparse.Namespace) -> int:
+    """Confirm HF_TOKEN can write to both private Hub repos. No GPU, no data, nothing uploaded."""
+    from lumen import hub
+
+    try:
+        api = make_hub_api()
+        checks = [
+            hub.preflight(api, hub.predictions_repo(), "dataset"),
+            hub.preflight(api, hub.adapter_repo(), "model"),
+        ]
+    except hub.HubError as e:
+        print(f"STORAGE CHECK FAILED: {e}")
+        return EXIT_STORAGE
+    for c in checks:
+        print(f"ok: {c['repo']} ({c['repo_type']}) is private and writable with HF_TOKEN")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -650,6 +672,9 @@ def main() -> int:
     sub.add_parser("env").set_defaults(fn=cmd_env)
     sub.add_parser("data").set_defaults(fn=cmd_data)
     sub.add_parser("mac_sample").set_defaults(fn=cmd_mac_sample)
+    sub.add_parser(
+        "storage_check", help="check HF_TOKEN against the private Hub repos"
+    ).set_defaults(fn=cmd_storage_check)
     b = sub.add_parser("baseline", help="zero-shot baselines (Stage 2)")
     b.add_argument("--model", nargs="+", default=["all"], help="pinned model keys, or 'all'")
     b.add_argument("--split", choices=["dev", "val"], required=True)

@@ -199,3 +199,11 @@ def test_smoke_runs_are_not_uploaded(ready: Path) -> None:
     )
     assert r["predictions"]["stored"].startswith("local only")
     assert not run_stages.make_hub_api().files
+
+
+def test_storage_check_covers_both_private_repos(env: Path, monkeypatch, capsys) -> None:
+    assert run_stages.cmd_storage_check(argparse.Namespace()) == 0
+    out = capsys.readouterr().out
+    assert "cjitendr/lumen-predictions (dataset)" in out and "cjitendr/lumen-adapter (model)" in out
+    monkeypatch.setattr(run_stages, "make_hub_api", lambda: FakeHubApi(private=False))
+    assert run_stages.cmd_storage_check(argparse.Namespace()) == run_stages.EXIT_STORAGE

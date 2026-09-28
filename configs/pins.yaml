@@ -76,7 +76,11 @@ adapters: {}
 # repeat private details, and this repo will become public. They go to a private Hugging Face
 # dataset repo; each result in git records the file's path, Hub commit revision, and sha256.
 predictions:
-  repo: JCHETAN26/lumen-predictions  # private *dataset* repo; HF_TOKEN needs write access
+  repo: cjitendr/lumen-predictions  # private *dataset* repo; HF_TOKEN needs write access
+
+# LoRA adapters (Stage 3) are pushed to this private Hub *model* repo, then pinned by commit SHA
+# under `adapters` below. HF_TOKEN is fine-grained: write access to these two repos only.
+adapter_repo: cjitendr/lumen-adapter
 
 splits:
   seed: 20260928

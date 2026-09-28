@@ -8,7 +8,7 @@ Key decisions and anything that went wrong, newest first.
 answers, P(unanswerable)) can repeat private details from the photos, e.g. text on mail or
 medicine the model read aloud. The repo will become public and git history is permanent, so
 "keep them in a private repo" is not enough. Now:
-- They're stored in a **private Hugging Face dataset repo** (`JCHETAN26/lumen-predictions`,
+- They're stored in a **private Hugging Face dataset repo** (`cjitendr/lumen-predictions`,
   `predictions.repo` in pins). Each result in git records a pointer: path, Hub commit revision,
   sha256, line count. `lumen.hub.download` fetches at that revision and checks the sha256.
 - Before any GPU time, the runner checks the repo exists, is **private**, and the token can write.

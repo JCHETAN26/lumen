@@ -30,6 +30,13 @@ def predictions_repo() -> str:
     return repo
 
 
+def adapter_repo() -> str:
+    repo = load_pins().raw.get("adapter_repo")
+    if not repo:
+        raise HubError("configs/pins.yaml has no adapter_repo")
+    return repo
+
+
 def make_api(token: str | None = None) -> Any:
     from huggingface_hub import HfApi
 
@@ -39,7 +46,7 @@ def make_api(token: str | None = None) -> Any:
     return HfApi(token=token)
 
 
-def _can_write(whoami: dict, repo_id: str) -> bool:
+def _can_write(whoami: dict, repo_id: str, repo_type: str = "dataset") -> bool:
     """Best-effort check of the token's write permission from `whoami()`."""
     tok = (whoami.get("auth") or {}).get("accessToken") or {}
     role = tok.get("role")
@@ -51,7 +58,7 @@ def _can_write(whoami: dict, repo_id: str) -> bool:
     for scope in (tok.get("fineGrained") or {}).get("scoped", []):
         entity = scope.get("entity") or {}
         target = entity.get("name")
-        applies = (entity.get("type") in ("dataset", "repo") and target == repo_id) or (
+        applies = (entity.get("type") in (repo_type, "repo") and target == repo_id) or (
             entity.get("type") in ("user", "org") and target == owner
         )
         if applies and "repo.write" in scope.get("permissions", []):
@@ -59,20 +66,20 @@ def _can_write(whoami: dict, repo_id: str) -> bool:
     return False
 
 
-def preflight(api: Any, repo_id: str) -> dict[str, Any]:
+def preflight(api: Any, repo_id: str, repo_type: str = "dataset") -> dict[str, Any]:
     """Fail before a GPU run unless the repo exists, is private, and the token can write to it."""
     try:
-        info = api.repo_info(repo_id, repo_type="dataset")
+        info = api.repo_info(repo_id, repo_type=repo_type)
     except Exception as e:  # missing repo or no access: say what to do
         raise HubError(
-            f"can't access the private dataset repo {repo_id}: {type(e).__name__}. Create it on "
-            "huggingface.co (private dataset) and give HF_TOKEN write access to it."
+            f"can't access the private {repo_type} repo {repo_id}: {type(e).__name__}. Create it "
+            f"on huggingface.co (private {repo_type}) and give HF_TOKEN write access to it."
         ) from None
     if not getattr(info, "private", False):
-        raise HubError(f"{repo_id} is PUBLIC: predictions may only go to a private repo")
-    if not _can_write(api.whoami(), repo_id):
-        raise HubError(f"HF_TOKEN can't write to {repo_id}: give it repo.write on that dataset")
-    return {"repo": repo_id, "private": True}
+        raise HubError(f"{repo_id} is PUBLIC: Lumen only writes to private repos")
+    if not _can_write(api.whoami(), repo_id, repo_type):
+        raise HubError(f"HF_TOKEN can't write to {repo_id}: give it repo.write on that {repo_type}")
+    return {"repo": repo_id, "repo_type": repo_type, "private": True}
 
 
 def _sha256(path: Path) -> str:

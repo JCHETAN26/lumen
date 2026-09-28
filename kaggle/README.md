@@ -40,9 +40,9 @@ data at all.
 
 1. A Kaggle account with **phone verification** (needed for GPU and internet).
 2. A **GitHub fine-grained token** with *Contents: read* on `JCHETAN26/lumen` only.
-3. *(Stage 2)* A **private Hugging Face dataset repo** `JCHETAN26/lumen-predictions` (create it on
-   huggingface.co as *private*), and a **fine-grained HF token** with write access to it and, from
-   Stage 3, to the private adapter repo (nothing account-wide). Prediction files are stored there,
+3. *(Stage 2)* Private Hugging Face repos `cjitendr/lumen-predictions` (dataset) and
+   `cjitendr/lumen-adapter` (model, for Stage 3), and a **fine-grained HF token** with write
+   access to those two only (nothing account-wide). `run_stages.py storage_check` verifies both. Prediction files are stored there,
    never in git; the runner refuses to start if the repo is missing, public, or not writable.
 
 ## 2. Create the notebook
