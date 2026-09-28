@@ -17,7 +17,7 @@ is the runner:
 | `env` | 1 | any | Save the machine, GPU, and library versions |
 | `data` | 1 | **None** | Download + verify pinned VizWiz files (~15 GB), validate annotations against the zips, build dev split + Mac sample IDs |
 | `mac_sample` | 1 | **None** | Package the 300 pinned val images + annotations for the Mac |
-| `baseline` | 2 | GPU T4 | Zero-shot baselines (added in Stage 2) |
+| `baseline` | 2 | GPU T4 | Zero-shot baselines: 4 models × 2 prompts on dev, then each model's dev-chosen prompt on val |
 | `train`, `eval` | 3 | GPU T4 | LoRA fine-tuning and evaluation (added in Stage 3) |
 
 ## GPU quota guard
@@ -81,6 +81,38 @@ If the cell fails, the error shows git's (redacted) message; check the token's s
 !source /kaggle/working/lumen-env.sh && uv run python kaggle/run_stages.py mac_sample
 ```
 
+## Stage 2: zero-shot baselines
+
+```bash
+B="uv run python kaggle/run_stages.py baseline"
+$B --model all --split dev --prompt both --dry-run --gpu-hours-left H     # plan, loads nothing
+$B --model smolvlm2-500m lfm2.5-vl-450m --split dev --prompt abstain --stand-in --limit 16
+$B --model smolvlm2-500m --split dev --prompt abstain --limit 32 --gpu-hours-left H  # fp16 check
+$B --model all --split dev --prompt both --gpu-hours-left H
+$B --model all --split val --prompt dev-selected --gpu-hours-left H
+```
+
+- **Prior GPU hours** (`lumen.zeroshot.estimates`, conservative; overhead counted per run):
+
+  | Model | dev plain | dev abstain | val (dev-selected) | total |
+  |---|---|---|---|---|
+  | SmolVLM2-256M | 0.37 | 0.37 | 0.68 | 1.42 |
+  | SmolVLM2-500M | 0.44 | 0.44 | 0.81 | 1.69 |
+  | LFM2.5-VL-450M | 0.44 | 0.44 | 0.81 | 1.69 |
+  | SmolVLM2-2.2B | 1.37 | 1.37 | 2.63 | 5.37 |
+  | **all** | | | | **≈10.2** |
+
+  Each run re-estimates from a 32-question calibration batch and stops cleanly if the measured rate
+  no longer fits; answered questions are kept and a rerun resumes.
+- **Val uses the dev-chosen prompt only** (`--prompt dev-selected`: best dev accuracy, ties by dev
+  AP). Explicit prompts on val are refused.
+- **fp16 on the T4:** non-finite logits stop the run and write a `failed_non_finite` result; nothing
+  is scored silently.
+- **Outputs:** `baseline/<model>/<split>-<prompt>.json` (metrics with bootstrap CIs, GPU hours
+  estimated vs. used, full run metadata) and `.predictions.jsonl` (raw and extracted answers, P(unanswerable)).
+  Commit both to `results/baseline/`. Prediction files contain model outputs about users' photos:
+  keep them in this private repo, and never quote them publicly.
+
 ## 4. What to download, and where it goes
 
 Only **`/kaggle/working/lumen-results/`** leaves Kaggle (Output tab). Commit its contents on the
@@ -93,6 +125,7 @@ Mac. Copy only files that don't exist yet; never overwrite a committed result.
 | `splits/*.txt` | `configs/splits/` (these become the pinned splits) |
 | `mac_sample/*.tar.gz` | **not committed**: extract to `data/mac_sample/` on the Mac (gitignored) |
 | `mac_sample_val_*.json` | `results/mac_sample/` (records the archive's sha256) |
+| `baseline/<model>/*` | `results/baseline/<model>/` (`baseline/smoke/` too, if you want the checks kept) |
 
 After the first `data` run, copy the sha256 values from `observed_hashes.json` into
 `configs/pins.yaml`. From then on, any download that doesn't match stops the run.

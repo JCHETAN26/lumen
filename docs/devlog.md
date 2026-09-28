@@ -2,6 +2,79 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-09-28: Build-ahead during the Kaggle data run (Stage 2 code, MLX check)
+
+**Mac shutdown.** The Mac overheated and shut down mid-session while this work was in progress.
+Nothing had been committed, and the scratchpad was wiped. The only work that survived was the new
+dependency groups in `pyproject.toml` / `uv.lock`, plus SmolVLM2-500M's weights in the HF cache
+(downloaded at 02:09, just before the shutdown). Everything below was redone, and I committed
+before the only heavier step (the MLX run). The MLX run itself was one warm-up plus 3 images,
+and pmset recorded no thermal or performance warnings before or after.
+
+**Notebook token leak (fixed).** The old clone cell put the token in git's URL and used
+`check=True`: on a failed clone, `CalledProcessError`'s message prints the whole command, token
+included. Sending git's output to DEVNULL didn't help, because the leak is in Python's
+exception, not git's output. The new cell passes the token to git only as an HTTP auth header
+through `GIT_CONFIG_*` environment variables for that one process, clears `GIT_TRACE*`, and
+redacts git's error text. `tests/test_notebook_clone.py` runs the real cell against a stub git
+that fails and echoes everything. Checked by mutation: the old cell fails the test with "token
+leaked in exception message".
+
+**wrapt warning.** Kaggle's image has a `sitecustomize.py` that imports `wrapt`, which our uv
+venv lacks. setup.sh now builds the venv on a uv-managed Python (no sitecustomize) and drops
+PYTHONPATH entries that contain one. **Not yet verified on Kaggle:** setup.sh prints which
+sitecustomize the venv resolves, so the next session confirms it.
+
+**GPU stack pins.** torch 2.14.0 from the **cu126** index (not cu130): CUDA 12.6 supports the
+T4's sm_75 and runs on older drivers, avoiding the driver mismatch Strata hit with a CUDA 13
+build. transformers 5.17.0, torchvision 0.29.0 (the fast image processors need it), num2words
+(the SmolVLM processor needs it), accelerate 1.15.0. On the Mac, the PyPI CPU/MPS wheels (used
+only for tests).
+
+**Answerability score for zero-shot models.** P(the answer starts with "unanswerable"), summed
+over four spellings (lower/capitalized × with/without a leading space; which one a model uses
+depends on its chat template). It's exact, not an approximation. One prefill over the prompt and
+image builds the KV cache; each spelling's remaining tokens are scored from a copy of the cache,
+so the image is encoded once for scoring and once more inside `generate`. A test checks the
+cached score against a full uncached forward per spelling.
+
+**Answer extraction** (`lumen.zeroshot.extract`, versioned) keeps the first line, strips a leading
+"Answer:" label and quotes, and maps whole-answer abstentions ("I can't tell", "cannot be
+determined") to "unanswerable". Otherwise a model that abstains in its own words would be scored
+wrong on exactly the questions it handled well. "unknown" is deliberately *not* mapped, since it
+can be a real answer. The raw text is always stored next to the extracted answer.
+
+**Tiny stand-ins instead of Hub "tiny-random" checkpoints.** The Hub's tiny SmolVLM and LFM2-VL
+test checkpoints are internally inconsistent (their processor configs don't match their model
+shapes; both crash in the vision projector). `tiny_stand_in` loads the pinned model's real config,
+processor, and chat template (a few MB, no weights) and builds a ~5M-parameter random model with
+the same structure. Tests on it prove left-padded batching doesn't change answers, the cached
+scoring is exact, and the whole baseline stage runs end to end, before any GPU time is spent.
+
+**Image tokens differ a lot between models** (from the pinned processors): SmolVLM2-256M/500M
+resize to a 2048-px longest edge and tile into up to 17 tiles of 512² at 64 tokens each (~1.1k
+tokens). LFM2.5-VL-450M uses up to 10 tiles plus a thumbnail at ≤256 tokens each (~2.9k).
+SmolVLM2-2.2B uses 17 tiles of 384² at 81 tokens (~1.4k) with a 400M vision encoder. These go
+into the GPU-hour priors.
+
+**Stage 2 GPU-hour priors** (`run_stages.py baseline --dry-run`): dev, both prompts ≈ 5.2 h; val,
+dev-chosen prompt ≈ 4.9 h; total ≈ 10.2 h, of which SmolVLM2-2.2B is 5.4 h. Conservative: model
+load time is counted per run even though a model loads once per process. Calibration replaces
+these with measured rates.
+
+**MLX on the Mac works** (`scripts/mlx_smoke.py`, `results/mac/mlx_smoke_smolvlm2-500m.json`).
+SmolVLM2-500M at its pinned revision through mlx-vlm 0.7.3 / MLX 0.32.2, weights as published
+(float32, 507M parameters), M2 8 GB on battery:
+- load 29 s (weights already cached); 1.89 GiB active after load; MLX peak 3.37 GiB.
+- ~925 prompt tokens per question (image tiles + text). Warm: prefill ~430–505 tok/s, so time to
+  first token ≈ 1.8–2.2 s; decode 63–100 tok/s; ≈ 2.3–2.5 s end to end for a short answer.
+  The cold first call took 5.5 s (Metal kernel compilation).
+- Implication for Stage 4: prefill of the image tokens dominates latency, not decoding. 4-bit
+  weights will cut memory ~4× but may help prefill less than decode. Reducing image tiles is
+  the bigger latency lever, and a trade-off to measure, not assume.
+- 3 questions is a smoke check, not a benchmark: the accuracy there means nothing, and no
+  answer text was stored (VizWiz photos can contain private details).
+
 ## 2026-09-28: Stage 1 data run on Kaggle
 
 The `env`, `data`, and `mac_sample` stages ran on Kaggle (CPU session, Intel Xeon 2.2 GHz,

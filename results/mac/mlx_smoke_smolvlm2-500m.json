@@ -1,0 +1,130 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-09-28T09:09:32+00:00",
+    "git": {
+      "commit": "299c3677ea66871f8b962ba42db5841ccae11d35",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "arm64",
+      "os": "Darwin 25.5.0",
+      "logical_cpus": 8,
+      "load_average_1m_5m_15m": [
+        2.71,
+        3.0,
+        8.34
+      ],
+      "chip": "Apple M2",
+      "memory_gib": 8.0,
+      "os_version": "26.5.2",
+      "model": "Mac14,2",
+      "power_source": "battery",
+      "cpu_speed_limit_pct": null,
+      "gpus": [],
+      "kaggle": false
+    },
+    "python": "3.11.13",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0",
+      "transformers": "5.17.0",
+      "peft": null,
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": "0.32.2",
+      "mlx-vlm": "0.7.3",
+      "mlx-lm": null
+    },
+    "argv": [
+      "scripts/mlx_smoke.py",
+      "--model",
+      "smolvlm2-500m",
+      "--n",
+      "3"
+    ]
+  },
+  "stage": "mlx_smoke",
+  "model": {
+    "key": "smolvlm2-500m",
+    "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+    "weights": "as published (unquantized)",
+    "param_dtypes": [
+      "mlx.core.float32"
+    ],
+    "parameters": 507482304
+  },
+  "prompt_key": "abstain",
+  "max_tokens": 16,
+  "load_seconds": 29.37,
+  "active_memory_after_load_gib": 1.891,
+  "mlx_peak_memory_gib": 3.366,
+  "process_max_rss_gib": 1.515,
+  "warmup": {
+    "question_id": "VizWiz_val_00000000",
+    "answerable": 0,
+    "wall_s": 5.548,
+    "prompt_tokens": 928,
+    "generation_tokens": 2,
+    "prompt_tps": 187.6,
+    "generation_tps": 75.2,
+    "ttft_s_approx": 4.945,
+    "peak_memory_gib": 3.614,
+    "vizwiz_accuracy": 0.0,
+    "said_unanswerable": false
+  },
+  "runs": [
+    {
+      "question_id": "VizWiz_val_00000000",
+      "answerable": 0,
+      "wall_s": 2.252,
+      "prompt_tokens": 928,
+      "generation_tokens": 2,
+      "prompt_tps": 505.3,
+      "generation_tps": 99.9,
+      "ttft_s_approx": 1.837,
+      "peak_memory_gib": 3.614,
+      "vizwiz_accuracy": 0.0,
+      "said_unanswerable": false
+    },
+    {
+      "question_id": "VizWiz_val_00000009",
+      "answerable": 1,
+      "wall_s": 2.374,
+      "prompt_tokens": 930,
+      "generation_tokens": 5,
+      "prompt_tps": 504.0,
+      "generation_tps": 64.5,
+      "ttft_s_approx": 1.845,
+      "peak_memory_gib": 3.614,
+      "vizwiz_accuracy": 0.0,
+      "said_unanswerable": false
+    },
+    {
+      "question_id": "VizWiz_val_00000033",
+      "answerable": 0,
+      "wall_s": 2.48,
+      "prompt_tokens": 923,
+      "generation_tokens": 4,
+      "prompt_tps": 427.2,
+      "generation_tps": 63.3,
+      "ttft_s_approx": 2.161,
+      "peak_memory_gib": 3.614,
+      "vizwiz_accuracy": 1.0,
+      "said_unanswerable": true
+    }
+  ],
+  "thermal_before": {
+    "power_source": "battery",
+    "cpu_speed_limit_pct": null
+  },
+  "thermal_after": {
+    "power_source": "battery",
+    "cpu_speed_limit_pct": null
+  },
+  "note": "smoke check on 3 Mac-sample images; not a benchmark (no repeats, no variance)"
+}

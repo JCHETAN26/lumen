@@ -101,7 +101,9 @@ starting new work. Key decisions and anything that went wrong go in `docs/devlog
 ## Data ethics
 
 VizWiz photos were taken by blind people asking for help and can contain private information.
-Never commit, display, or redistribute them, and never quote private details from them. See the
+Never commit, display, or redistribute them, and never quote private details from them. Model
+prediction files (`*.predictions.jsonl`) can repeat such details: they stay in this private repo
+and are never quoted publicly; on-device smoke checks store scores, not answer text. See the
 README's "Respectful use" section. The dataset is CC BY 4.0: cite Gurari et al., CVPR 2018.
 
 ## Secrets

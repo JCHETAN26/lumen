@@ -51,13 +51,13 @@ variance), parameter-efficient fine-tuning under a tight GPU budget, selective a
 | Stage | Work | Prior estimate |
 |---|---|---|
 | 1 | data, mac_sample | 0 GPU h (CPU sessions) |
-| 2 | 4 models × (dev + val ≈ 6.4k questions), + prompt variants on dev | ~5–7 h |
+| 2 | 4 models × (2 prompts on dev + 1 on val) | ~10.2 h (prior, `--dry-run`) |
 | 3 | LoRA runs on 500M (≈18.5k examples × 2 epochs), 3 seeds for the final config, + ablation, + eval | ~15–20 h, spread over 1–2 weeks |
 | Final | Test evaluation, one run | ~0.5 h |
 
 ---
 
-## Stage 1: Repo, data pipeline, and evaluation code ✅ (awaiting review)
+## Stage 1: Repo, data pipeline, and evaluation code ✅
 
 - [x] `CLAUDE.md`, `buildplan.md`, README (CI badge, VizWiz citation + CC BY 4.0, respectful-use
       note, metric quirks), `docs/devlog.md`.
@@ -74,13 +74,18 @@ variance), parameter-efficient fine-tuning under a tight GPU budget, selective a
 - [x] Test-split seal (`lumen.eval.test_seal`): opt-in flag, clean tree, one committed record, refuses reruns.
 - [x] Live tests (Hugging Face, VizWiz host, Kaggle) that skip on usage caps.
 - [x] Kaggle runner: token-safe clone, `setup.sh`, `env` / `data` / `mac_sample` stages, notebook.
-- [ ] **You, on Kaggle (CPU session):** run `env`, `data`, `mac_sample`; download `lumen-results/`.
-- [ ] Commit observed sha256s to `configs/pins.yaml`, split ID lists to `configs/splits/`, results to `results/`.
+- [x] Kaggle (CPU session): `env`, `data`, `mac_sample` ran at 48788b5 (2026-09-28).
+- [x] Observed sha256s pinned in `configs/pins.yaml`; split ID lists in `configs/splits/`; results in `results/`.
 
 **Done when:** CI is green; the data stage has run on Kaggle; hashes and splits are committed;
 the data summary (counts, answerable rate, unmatchable-ground-truth count) has been reviewed.
 
-## Stage 2: Zero-shot baseline on Kaggle
+## Stage 2: Zero-shot baseline on Kaggle (code done and tested; GPU runs not started)
+
+Built ahead and tested end to end (fake backend in CI; tiny stand-ins with the real processors
+locally): `lumen.zeroshot` + `run_stages.py baseline`. Prior GPU hours: dev ≈ 5.2, val ≈ 4.9,
+total ≈ 10.2 (`--dry-run`). MLX on the Mac is confirmed early (`results/mac/mlx_smoke_*`).
+
 
 - Add the GPU dependency group (torch, transformers, accelerate), pinned and verified on the T4.
 - One inference harness for all four models: pinned revision, greedy decoding, max answer
