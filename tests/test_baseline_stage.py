@@ -241,3 +241,27 @@ def test_stand_in_and_real_smoke_runs_never_share_files(ready: Path, monkeypatch
         ).read_text()
     )
     assert real["run"]["resumed"] == 0 and real["metrics"]["n"] == 8
+
+
+def test_measured_rate_and_summary_table(ready: Path, capsys) -> None:
+    assert run_stages.cmd_baseline(args()) == 0
+    assert run_stages.cmd_baseline(args(prompt="plain", limit=4)) == 0
+    r = result(ready, "smolvlm2-500m", "dev-plain.json")
+    assert r["run"]["sec_per_question"] > 0
+    out = capsys.readouterr().out
+    assert "measured" in out and "s/question over 10 questions" in out
+    assert run_stages.cmd_baseline_summary(argparse.Namespace()) == 0
+    table = capsys.readouterr().out.splitlines()
+    assert table[0].split()[:4] == ["kind", "model", "split", "prompt"]
+    rows = [line.split() for line in table[1:]]
+    assert {(row[0], row[3]) for row in rows} == {
+        ("real", "abstain"),
+        ("real", "plain"),
+        ("smoke", "plain"),
+    }
+    assert all(row[1] == "smolvlm2-500m" and row[4] == "completed" for row in rows)
+
+
+def test_summary_without_results(env: Path, capsys) -> None:
+    assert run_stages.cmd_baseline_summary(argparse.Namespace()) == 0
+    assert "no baseline results" in capsys.readouterr().out

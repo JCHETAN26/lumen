@@ -8,6 +8,7 @@ Stages (each writes result JSON under results/ and copies it to the download fol
                 image zips, build the dev split and the Mac sample ID lists      (CPU only)
     mac_sample  package the ~300 pinned val images + their annotations for the Mac   (CPU only)
     storage_check  confirm HF_TOKEN can write to the private predictions + adapter repos
+    baseline_summary  one line per baseline result: accuracy, CI, AP, s/question, GPU hours
 
     baseline    zero-shot baselines (Stage 2) for the pinned models on dev or val        (GPU)
                 --dry-run prints the GPU-hour plan without loading anything
@@ -505,7 +506,13 @@ def _baseline_one(
         },
         "run": None
         if stats is None
-        else {"new": stats.new, "resumed": stats.resumed, "seconds": round(stats.seconds, 1)},
+        else {
+            "new": stats.new,
+            "resumed": stats.resumed,
+            "seconds": round(stats.seconds, 1),
+            # Measured GPU rate (batch-amortized, excludes model load): replaces the prior.
+            "sec_per_question": round(stats.seconds / stats.new, 4) if stats.new else None,
+        },
     }
     if status == "completed":
         payload["metrics"] = score_predictions(records, preds)
@@ -532,6 +539,11 @@ def _baseline_one(
         f"AP {m['answerability']['average_precision']:.2f}  "
         f"said-unanswerable {100 * m['said_unanswerable_rate']:.1f}%  ({hours:.2f} h)"
     )
+    if stats is not None and stats.new:
+        print(
+            f"   measured {stats.seconds / stats.new:.3f} s/question over {stats.new} questions "
+            f"(batch {batch_size}; prior was {prior.sec_per_item:.2f})"
+        )
     return 0
 
 
@@ -652,6 +664,59 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------------- baseline_summary
+
+
+def _latest_results(root: Path) -> list[Path]:
+    """The newest result per (kind, model, split, prompt): name.json, name.1.json, ... -> last."""
+    latest: dict[tuple, tuple[int, Path]] = {}
+    for f in root.rglob("*.json"):
+        parts = f.stem.split(".")
+        n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        key = (f.parent, parts[0])
+        if key not in latest or n > latest[key][0]:
+            latest[key] = (n, f)
+    return sorted(p for _, p in latest.values())
+
+
+def cmd_baseline_summary(args: argparse.Namespace) -> int:
+    """One line per baseline result: what ran, how it scored, how fast, and what it cost."""
+    root = RESULTS / BASELINE_DIR
+    files = _latest_results(root) if root.exists() else []
+    if not files:
+        print(f"no baseline results under {root}")
+        return 0
+    head = (
+        f"{'kind':<9}{'model':<16}{'split':<6}{'prompt':<9}{'status':<10}{'n':>5}"
+        f"{'acc':>7}{'95% CI':>15}{'AP':>7}{'unans%':>8}{'s/q':>7}{'GPU h':>7}  stored"
+    )
+    print(head)
+    for f in files:
+        d = json.loads(f.read_text())
+        rel = f.relative_to(root).parts
+        kind = rel[0] if len(rel) > 2 else "real"
+        m = d.get("metrics") or {}
+        acc = m.get("accuracy", {})
+        ci = acc.get("ci95", {})
+        ans = m.get("answerability", {})
+        run = d.get("run") or {}
+        spq = run.get("sec_per_question")
+        stored = (d.get("predictions") or {}).get("stored", "")
+        ci_txt = f"[{ci['low']:.1f}, {ci['high']:.1f}]" if ci else ""
+        print(
+            f"{kind:<9}{f.parent.name:<16}"
+            f"{d['split']:<6}{d['prompt']['prompt_key']:<9}{d['status']:<10}"
+            f"{m.get('n', d.get('answered', 0)):>5}"
+            f"{acc.get('overall', float('nan')):>7.2f}"
+            f"{ci_txt:>15}"
+            f"{ans.get('average_precision', float('nan')):>7.2f}"
+            f"{100 * m.get('said_unanswerable_rate', float('nan')):>8.1f}"
+            f"{spq if spq is not None else float('nan'):>7.3f}"
+            f"{d['gpu_hours']['actual_this_run']:>7.2f}  {stored}"
+        )
+    return 0
+
+
 # -------------------------------------------------------------------------- storage_check
 
 
@@ -681,6 +746,9 @@ def main() -> int:
     sub.add_parser("env").set_defaults(fn=cmd_env)
     sub.add_parser("data").set_defaults(fn=cmd_data)
     sub.add_parser("mac_sample").set_defaults(fn=cmd_mac_sample)
+    sub.add_parser("baseline_summary", help="table of all baseline results").set_defaults(
+        fn=cmd_baseline_summary
+    )
     sub.add_parser(
         "storage_check", help="check HF_TOKEN against the private Hub repos"
     ).set_defaults(fn=cmd_storage_check)
