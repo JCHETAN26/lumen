@@ -88,3 +88,16 @@ def test_describe_records_pin_and_decoding(backend) -> None:
     d = backend.describe()
     assert d["stand_in"] is True and len(d["revision"]) == 40
     assert d["generation"]["do_sample"] is False and d["generation"]["max_new_tokens"] == 4
+
+
+def test_generation_prompt_is_applied(backend) -> None:
+    """transformers 5.17 logs a 'Kwargs passed to processor.__call__' warning from inside
+    apply_chat_template even for a bare call; this pins that the assistant turn is still opened."""
+    text = backend.processor.apply_chat_template(
+        chat_messages("Q?", "plain"), add_generation_prompt=True
+    )
+    expected = {
+        "smolvlm2-500m-stand-in": "Assistant:",
+        "lfm2.5-vl-450m-stand-in": "<|im_start|>assistant\n",
+    }[backend.name]
+    assert text.endswith(expected)
