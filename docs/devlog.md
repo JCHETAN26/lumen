@@ -2,6 +2,31 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-09-28: Stage 2 quick checks passed; prefetching, and a correction
+
+**Quick checks on the T4.** Storage check: both private HF repos are private and writable, which
+also confirms the fine-grained token scope parsing works against a real token. Quick check 2
+(SmolVLM2-500M, 32 dev questions, fp16): finite logits, accuracy 25.0 [10.6, 40.3], AP 66.0,
+9.4% said unanswerable against ~27% unanswerable in dev (zero-shot under-abstains). The zips were
+re-downloaded this session (persistence had been off) and matched the pinned sha256s exactly.
+
+**Prefetching.** `run_predictions(prefetch_workers=N)` prepares the next batches (image load +
+processor) in worker threads while the GPU runs the current one. Output is byte-identical to
+N=0 (tested with the fake backend and the real SmolVLM/LFM processors). Thread safety: each
+worker thread uses its own deep copy of the processor (fast tokenizers can raise "Already
+borrowed" when shared), and ZipImages keeps one zip handle per thread. Early stops shut the pool
+down at once; a worker's exception surfaces at its own batch. Default `--prefetch-workers 2`.
+
+**Correction.** I told the user the stand-in runs' 0.55 s/question was mostly CPU image
+preprocessing and that prefetching could save up to ~4 GPU h. Measuring the real SmolVLM
+processor locally (M2, 1296x968 images) gave 0.078 s/image serial and only a 1.1x speedup with 3
+threads: the fast image processor already uses several cores through PyTorch, so Python threads
+add little. The 0.55 s was more likely fixed warm-up cost (CUDA init, first-call overheads)
+spread over only 16 questions. Prefetching still overlaps preprocessing with GPU work, but the
+realistic saving is at most the preprocessing time (~0.1-0.3 s/question on Kaggle's slower CPU),
+not 0.55. The size of the effect is measured on Kaggle with an A/B smoke run before the dev
+runs, rather than assumed.
+
 ## 2026-09-28: Kaggle quick checks: stand-in/smoke path collision (fixed)
 
 Quick check 1 (tiny stand-ins on the T4) passed for both model families: data, processors, chat

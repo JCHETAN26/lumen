@@ -3,14 +3,15 @@
 Extracting train.zip (11.3 GB) next to the zip would need ~23 GB, more than Kaggle's 20 GB
 persistent /kaggle/working. Zip members are individually addressable, so we never extract.
 
-`ZipImages` is safe to hand to DataLoader worker processes: the zip handle is opened lazily and
-reopened after a fork, never shared between processes.
+`ZipImages` is safe to use from worker threads and processes: each thread (and each process
+after a fork) opens its own zip handle lazily, so no handle is ever shared.
 """
 
 from __future__ import annotations
 
 import io
 import os
+import threading
 import zipfile
 from pathlib import Path
 
@@ -31,8 +32,8 @@ class ZipImages:
                         if base in self._index:
                             raise ValueError(f"image {base} appears twice across {self.zip_paths}")
                         self._index[base] = (zi, name)
-        self._handles: dict[int, zipfile.ZipFile] = {}
-        self._pid = os.getpid()
+        self._handles: dict[tuple[int, int, int], zipfile.ZipFile] = {}
+        self._lock = threading.Lock()
 
     def __len__(self) -> int:
         return len(self._index)
@@ -44,11 +45,14 @@ class ZipImages:
         return sorted(self._index)
 
     def _handle(self, zi: int) -> zipfile.ZipFile:
-        if os.getpid() != self._pid:  # forked into a worker: never reuse the parent's handles
-            self._handles, self._pid = {}, os.getpid()
-        if zi not in self._handles:
-            self._handles[zi] = zipfile.ZipFile(self.zip_paths[zi])
-        return self._handles[zi]
+        # Keyed by process and thread: a forked worker or another thread never reuses a handle.
+        key = (os.getpid(), threading.get_ident(), zi)
+        h = self._handles.get(key)
+        if h is None:
+            h = zipfile.ZipFile(self.zip_paths[zi])
+            with self._lock:
+                self._handles[key] = h
+        return h
 
     def read_bytes(self, image: str) -> bytes:
         try:
@@ -63,9 +67,13 @@ class ZipImages:
             return im.convert("RGB")
 
     def close(self) -> None:
-        for h in self._handles.values():
-            h.close()
-        self._handles = {}
+        with self._lock:
+            for h in self._handles.values():
+                h.close()
+            self._handles = {}
 
     def __getstate__(self) -> dict:
-        return {**self.__dict__, "_handles": {}}
+        return {k: v for k, v in self.__dict__.items() if k not in ("_handles", "_lock")}
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state, _handles={}, _lock=threading.Lock())

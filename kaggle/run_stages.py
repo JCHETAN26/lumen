@@ -479,6 +479,7 @@ def _baseline_one(
             out_path=pred_path,
             batch_size=batch_size,
             on_batch=on_batch,
+            prefetch_workers=getattr(args, "prefetch_workers", 0),
         )
     except BudgetExceeded as e:
         print(f"STOPPED (budget): {e}\n   answered so far is saved in {pred_path}; rerun resumes.")
@@ -499,6 +500,7 @@ def _baseline_one(
         "prompt": header,
         "prompt_selection": prompt_selection,
         "batch_size": batch_size,
+        "prefetch_workers": getattr(args, "prefetch_workers", 0),
         "gpu_hours": {
             "prior_estimate": prior.as_dict(),
             "calibration": calibration or None,
@@ -764,6 +766,12 @@ def main() -> int:
     )
     b.add_argument("--batch-size", type=int, default=None)
     b.add_argument("--calibration-items", type=int, default=32)
+    b.add_argument(
+        "--prefetch-workers",
+        type=int,
+        default=2,
+        help="threads preparing the next batches while the GPU runs (0 = off)",
+    )
     b.add_argument("--limit", type=int, default=None, help="smoke run on the first N questions")
     b.add_argument(
         "--stand-in",

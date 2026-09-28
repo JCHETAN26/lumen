@@ -116,3 +116,42 @@ def test_only_the_known_noisy_warning_is_dropped(backend, caplog) -> None:
         log.warning("some other warning")
     messages = [r.getMessage() for r in caplog.records]
     assert messages == ["some other warning"]
+
+
+def test_prefetch_threads_give_identical_answers(backend, tmp_path) -> None:
+    """The real processor used from worker threads (one copy per thread) changes nothing."""
+    import zipfile
+
+    from conftest import fake_records
+
+    from lumen.data.images import ZipImages
+    from lumen.zeroshot.harness import read_predictions, run_predictions
+
+    recs = fake_records("val", 9)
+    colors = [(200, 20, 20), (20, 200, 20), (20, 20, 200)]
+    with zipfile.ZipFile(tmp_path / "val.zip", "w") as z:
+        for i, r in enumerate(recs):
+            import io
+
+            buf = io.BytesIO()
+            Image.new("RGB", (640 - 40 * i, 480), colors[i % 3]).save(buf, "JPEG")
+            z.writestr(f"val/{r['image']}", buf.getvalue())
+    for r in recs:
+        r["question_id"] = r["image"].removesuffix(".jpg")
+    images = ZipImages(tmp_path / "val.zip")
+    for workers, name in [(0, "serial"), (3, "prefetch")]:
+        run_predictions(
+            backend,
+            recs,
+            images,
+            prompt_key="abstain",
+            split="val",
+            out_path=tmp_path / f"{name}.jsonl",
+            batch_size=2,
+            prefetch_workers=workers,
+        )
+    _, serial = read_predictions(tmp_path / "serial.jsonl")
+    _, prefetch = read_predictions(tmp_path / "prefetch.jsonl")
+    assert [r["raw"] for r in serial.values()] == [r["raw"] for r in prefetch.values()]
+    for a, b in zip(serial.values(), prefetch.values(), strict=True):
+        assert a["p_unanswerable"] == pytest.approx(b["p_unanswerable"], rel=1e-5, abs=1e-12)

@@ -31,6 +31,7 @@ def args(**kw) -> argparse.Namespace:
         stand_in=False,
         device=None,
         dry_run=False,
+        prefetch_workers=2,  # every stage test also exercises the prefetch path
     )
     return argparse.Namespace(**(base | kw))
 

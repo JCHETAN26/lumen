@@ -8,11 +8,15 @@ refuses to if the header differs, so outputs from different settings are never m
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import itertools
 import json
 import os
 import time
-from collections.abc import Callable, Sequence
+from collections import deque
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -87,12 +91,19 @@ def run_predictions(
     out_path: Path,
     batch_size: int,
     on_batch: Callable[[int, float], None] | None = None,
+    prefetch_workers: int = 0,
 ) -> tuple[dict[str, dict], RunStats]:
     """Answer every record not already in `out_path`. `on_batch(done, seconds)` after each batch.
 
     `on_batch` may raise (e.g. the budget guard after calibration) to stop cleanly: everything
     answered so far is already on disk.
+
+    With `prefetch_workers > 0`, worker threads load and preprocess (`backend.prepare`) up to that
+    many batches ahead while the current batch runs on the GPU. Results are consumed and written
+    strictly in order, so the output is identical to `prefetch_workers=0`.
     """
+    if prefetch_workers < 0:
+        raise ValueError("prefetch_workers must be >= 0")
     header = predictions_header(backend, prompt_key, split)
     old_header, preds = read_predictions(out_path)
     if old_header is not None and old_header != header:
@@ -118,29 +129,64 @@ def run_predictions(
     with open(out_path, "a", encoding="utf-8") as f:
         if old_header is None:
             f.write(json.dumps({"_header": header}) + "\n")
-        for start in range(0, len(todo), batch_size):
-            chunk = todo[start : start + batch_size]
+        chunks = [todo[i : i + batch_size] for i in range(0, len(todo), batch_size)]
+
+        def prepare(chunk: list[Record]) -> Any:
             imgs = [images.open(r["image"]) for r in chunk]
             msgs = [chat_messages(r["question"], prompt_key) for r in chunk]
-            outs = backend.run_batch(imgs, msgs)
-            for r, o in zip(chunk, outs, strict=True):
-                ex = extract_answer(o.raw)
-                row = {
-                    "question_id": r["question_id"],
-                    "raw": o.raw,
-                    "answer": ex.answer,
-                    "abstained_by_rule": ex.abstained_by_rule,
-                    "p_unanswerable": o.p_unanswerable,
-                }
-                preds[r["question_id"]] = row
-                f.write(json.dumps(row) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
-            done += len(chunk)
-            batches += 1
-            if on_batch is not None:
-                on_batch(done, time.monotonic() - t0)
+            return backend.prepare(imgs, msgs)
+
+        stream = contextlib.closing(_in_order(chunks, prepare, prefetch_workers))
+        with stream as ordered:  # closes the prefetch pool at once if we stop early
+            for chunk, prepared in ordered:
+                outs = backend.run_prepared(prepared)
+                for r, o in zip(chunk, outs, strict=True):
+                    ex = extract_answer(o.raw)
+                    row = {
+                        "question_id": r["question_id"],
+                        "raw": o.raw,
+                        "answer": ex.answer,
+                        "abstained_by_rule": ex.abstained_by_rule,
+                        "p_unanswerable": o.p_unanswerable,
+                    }
+                    preds[r["question_id"]] = row
+                    f.write(json.dumps(row) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+                done += len(chunk)
+                batches += 1
+                if on_batch is not None:
+                    on_batch(done, time.monotonic() - t0)
     return preds, RunStats(done, resumed, time.monotonic() - t0, batches)
+
+
+def _in_order(
+    chunks: list[list[Record]], prepare: Callable[[list[Record]], Any], workers: int
+) -> Iterator[tuple[list[Record], Any]]:
+    """Yield (chunk, prepare(chunk)) in order, preparing up to `workers` chunks ahead in threads.
+
+    Stopping early (the consumer raises or stops iterating) cancels everything not yet started;
+    a worker's exception is re-raised here, at the chunk it belongs to.
+    """
+    if workers == 0:
+        for chunk in chunks:
+            yield chunk, prepare(chunk)
+        return
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lumen-prefetch")
+    pending: deque[tuple[list[Record], Future]] = deque()
+    it = iter(chunks)
+    try:
+        for chunk in itertools.islice(it, workers + 1):
+            pending.append((chunk, pool.submit(prepare, chunk)))
+        while pending:
+            chunk, fut = pending.popleft()
+            prepared = fut.result()
+            nxt = next(it, None)
+            if nxt is not None:
+                pending.append((nxt, pool.submit(prepare, nxt)))
+            yield chunk, prepared
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def score_predictions(

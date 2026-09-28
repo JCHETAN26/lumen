@@ -17,6 +17,7 @@ import copy
 import hashlib
 import logging
 import math
+import threading
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -66,9 +67,16 @@ class BatchOutput:
 
 
 class Backend(Protocol):
+    """`prepare` is CPU-only and thread-safe, so the harness can prepare the next batches in
+    worker threads while `run_prepared` keeps the GPU busy. `run_batch` = both, in sequence."""
+
     name: str
 
     def describe(self) -> dict[str, Any]: ...
+
+    def prepare(self, images: list[Image.Image], messages: list[list[dict]]) -> Any: ...
+
+    def run_prepared(self, prepared: Any) -> list[BatchOutput]: ...
 
     def run_batch(
         self, images: list[Image.Image], messages: list[list[dict]]
@@ -99,12 +107,18 @@ class FakeBackend:
     def describe(self) -> dict[str, Any]:
         return {"backend": "fake", "fixed_answer": self.answer}
 
+    def prepare(self, images: list[Image.Image], messages: list[list[dict]]) -> list[str]:
+        for image in images:
+            assert isinstance(image, Image.Image) and image.mode == "RGB"
+        return [msg[0]["content"][1]["text"] for msg in messages]
+
     def run_batch(self, images: list[Image.Image], messages: list[list[dict]]) -> list[BatchOutput]:
+        return self.run_prepared(self.prepare(images, messages))
+
+    def run_prepared(self, texts: list[str]) -> list[BatchOutput]:
         self.calls += 1
         out = []
-        for image, msg in zip(images, messages, strict=True):
-            assert isinstance(image, Image.Image) and image.mode == "RGB"
-            text = msg[0]["content"][1]["text"]
+        for text in texts:
             if self.nan_on and self.nan_on in text:
                 raise NonFiniteOutput("fake backend: non-finite logits")
             h = int(hashlib.sha256(text.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
@@ -147,6 +161,17 @@ class HFBackend:
         )
         if any(not v for v in self._variants):
             raise ValueError("a spelling of 'unanswerable' tokenized to nothing")
+        self._local = threading.local()
+
+    def _thread_processor(self) -> Any:
+        """The processor for the calling thread. Fast tokenizers can raise "Already borrowed" when
+        one instance is shared across threads, so each worker thread gets its own copy."""
+        if threading.current_thread() is threading.main_thread():
+            return self.processor
+        proc = getattr(self._local, "processor", None)
+        if proc is None:
+            proc = self._local.processor = copy.deepcopy(self.processor)
+        return proc
 
     @classmethod
     def from_pin(
@@ -179,14 +204,19 @@ class HFBackend:
             "unanswerable_token_variants": [list(v) for v in self._variants],
         }
 
-    def _encode(self, images: list[Image.Image], messages: list[list[dict]]) -> dict:
-        texts = [
-            self.processor.apply_chat_template(m, add_generation_prompt=True) for m in messages
-        ]
-        enc = self.processor(
-            text=texts, images=[[im] for im in images], return_tensors="pt", padding=True
+    def prepare(self, images: list[Image.Image], messages: list[list[dict]]) -> dict:
+        """CPU work only (chat template, image resize/tiling, tokenization): thread-safe."""
+        proc = self._thread_processor()
+        texts = [proc.apply_chat_template(m, add_generation_prompt=True) for m in messages]
+        return dict(
+            proc(text=texts, images=[[im] for im in images], return_tensors="pt", padding=True)
         )
-        return {k: v.to(self.device) for k, v in enc.items()}
+
+    def _to_device(self, prepared: dict) -> dict:
+        return {k: v.to(self.device) for k, v in prepared.items()}
+
+    def _encode(self, images: list[Image.Image], messages: list[list[dict]]) -> dict:
+        return self._to_device(self.prepare(images, messages))
 
     def _check_finite(self, logits: torch.Tensor, what: str) -> None:
         import torch
@@ -240,7 +270,10 @@ class HFBackend:
         return self.processor.batch_decode(new, skip_special_tokens=True)
 
     def run_batch(self, images: list[Image.Image], messages: list[list[dict]]) -> list[BatchOutput]:
-        enc = self._encode(images, messages)
+        return self.run_prepared(self.prepare(images, messages))
+
+    def run_prepared(self, prepared: dict) -> list[BatchOutput]:
+        enc = self._to_device(prepared)
         probs = self.p_unanswerable(enc)
         raws = self.generate(enc)
         for p in probs:
