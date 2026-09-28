@@ -1,0 +1,517 @@
+{
+ "source": "VizWiz_final/vqa_data/API.zip PythonEvaluationTools/vqaEvaluation/vqaEval.py",
+ "source_sha256": "d26ef7ac2db06351444c3531f8d95fd9c454423fbcb9fd5dd984f12281146694",
+ "accuracy_cases": [
+  {
+   "prediction": "yes",
+   "answers": [
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes"
+   ],
+   "answer_type": "yes/no",
+   "normalized": "yes",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "Yes.",
+   "answers": [
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "no",
+    "no",
+    "no"
+   ],
+   "answer_type": "yes/no",
+   "normalized": "yes",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "no",
+   "answers": [
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "no",
+    "no",
+    "no"
+   ],
+   "answer_type": "yes/no",
+   "normalized": "no",
+   "accuracy": 0.9
+  },
+  {
+   "prediction": "no",
+   "answers": [
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "no",
+    "no"
+   ],
+   "answer_type": "yes/no",
+   "normalized": "no",
+   "accuracy": 0.5999999999999999
+  },
+  {
+   "prediction": "no",
+   "answers": [
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "yes",
+    "no"
+   ],
+   "answer_type": "yes/no",
+   "normalized": "no",
+   "accuracy": 0.3
+  },
+  {
+   "prediction": "unanswerable",
+   "answers": [
+    "unanswerable",
+    "unanswerable",
+    "unanswerable",
+    "unanswerable",
+    "unanswerable",
+    "unanswerable",
+    "blue",
+    "blue",
+    "blue",
+    "blue"
+   ],
+   "answer_type": "unanswerable",
+   "normalized": "unanswerable",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "Unanswerable",
+   "answers": [
+    "unanswerable",
+    "unanswerable",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue"
+   ],
+   "answer_type": "other",
+   "normalized": "unanswerable",
+   "accuracy": 0.6
+  },
+  {
+   "prediction": "Two",
+   "answers": [
+    "2",
+    "2",
+    "2",
+    "2",
+    "two",
+    "two",
+    "two",
+    "two",
+    "two",
+    "two"
+   ],
+   "answer_type": "number",
+   "normalized": "2",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "two",
+   "answers": [
+    "two",
+    "two",
+    "two",
+    "two",
+    "two",
+    "two",
+    "two",
+    "two",
+    "two",
+    "two"
+   ],
+   "answer_type": "number",
+   "normalized": "2",
+   "accuracy": 0.0
+  },
+  {
+   "prediction": "a dog",
+   "answers": [
+    "dog",
+    "dog",
+    "dog",
+    "dog",
+    "dog",
+    "a dog",
+    "a dog",
+    "a dog",
+    "a dog",
+    "a dog"
+   ],
+   "answer_type": "other",
+   "normalized": "dog",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "the Dog!",
+   "answers": [
+    "dog",
+    "dog",
+    "dog",
+    "dog",
+    "dog",
+    "dog",
+    "dog",
+    "dog",
+    "dog",
+    "dog"
+   ],
+   "answer_type": "other",
+   "normalized": "dog",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "Dog",
+   "answers": [
+    "Dog",
+    "Dog",
+    "Dog",
+    "Dog",
+    "Dog",
+    "Dog",
+    "Dog",
+    "Dog",
+    "Dog",
+    "Dog"
+   ],
+   "answer_type": "other",
+   "normalized": "dog",
+   "accuracy": 0.0
+  },
+  {
+   "prediction": "dont know",
+   "answers": [
+    "don\u2019t know",
+    "don\u2019t know",
+    "don\u2019t know",
+    "don't know",
+    "don't know",
+    "don't know",
+    "don't know",
+    "don't know",
+    "don't know",
+    "don't know"
+   ],
+   "answer_type": "other",
+   "normalized": "don\u2019t know",
+   "accuracy": 0.9
+  },
+  {
+   "prediction": "3.5",
+   "answers": [
+    "3.5",
+    "3.5",
+    "3.5",
+    "3.5",
+    "35",
+    "35",
+    "35",
+    "35",
+    "35",
+    "35"
+   ],
+   "answer_type": "number",
+   "normalized": "3.5",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "3.",
+   "answers": [
+    "3",
+    "3",
+    "3",
+    "3",
+    "3",
+    "3",
+    "3",
+    "3",
+    "3",
+    "3"
+   ],
+   "answer_type": "number",
+   "normalized": "3",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "1,000",
+   "answers": [
+    "1000",
+    "1000",
+    "1000",
+    "1000",
+    "1000",
+    "1,000",
+    "1,000",
+    "1,000",
+    "1,000",
+    "1,000"
+   ],
+   "answer_type": "number",
+   "normalized": "1000",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "red, white",
+   "answers": [
+    "red white",
+    "red white",
+    "red white",
+    "red white",
+    "red white",
+    "red, white",
+    "red, white",
+    "red, white",
+    "red, white",
+    "red, white"
+   ],
+   "answer_type": "other",
+   "normalized": "red white",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "red,white",
+   "answers": [
+    "red white",
+    "red white",
+    "red white",
+    "red white",
+    "red white",
+    "redwhite",
+    "redwhite",
+    "redwhite",
+    "redwhite",
+    "redwhite"
+   ],
+   "answer_type": "other",
+   "normalized": "red white",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "pepsi-cola",
+   "answers": [
+    "pepsi cola",
+    "pepsi cola",
+    "pepsi cola",
+    "pepsicola",
+    "pepsicola",
+    "pepsicola",
+    "pepsi-cola",
+    "pepsi-cola",
+    "pepsi-cola",
+    "pepsi-cola"
+   ],
+   "answer_type": "other",
+   "normalized": "pepsi cola",
+   "accuracy": 0.9
+  },
+  {
+   "prediction": "  corn\tflakes\n",
+   "answers": [
+    "corn flakes",
+    "corn flakes",
+    "corn flakes",
+    "corn flakes",
+    "corn flakes",
+    "corn flakes",
+    "corn flakes",
+    "corn flakes",
+    "corn flakes",
+    "corn flakes"
+   ],
+   "answer_type": "other",
+   "normalized": "corn flakes",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "coca cola",
+   "answers": [
+    "coca cola",
+    "coke",
+    "coca cola",
+    "coke",
+    "coke",
+    "coke",
+    "coke",
+    "coke",
+    "coke",
+    "coke"
+   ],
+   "answer_type": "other",
+   "normalized": "coca cola",
+   "accuracy": 0.6
+  },
+  {
+   "prediction": "it's blue",
+   "answers": [
+    "its blue",
+    "its blue",
+    "its blue",
+    "its blue",
+    "its blue",
+    "it's blue",
+    "it's blue",
+    "it's blue",
+    "it's blue",
+    "it's blue"
+   ],
+   "answer_type": "other",
+   "normalized": "it's blue",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "(blue)",
+   "answers": [
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue"
+   ],
+   "answer_type": "other",
+   "normalized": "blue",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "blue ?",
+   "answers": [
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue"
+   ],
+   "answer_type": "other",
+   "normalized": "blue",
+   "accuracy": 1.0
+  },
+  {
+   "prediction": "",
+   "answers": [
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue",
+    "blue"
+   ],
+   "answer_type": "other",
+   "normalized": "",
+   "accuracy": 0.0
+  },
+  {
+   "prediction": "none",
+   "answers": [
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "none",
+    "none",
+    "none",
+    "none",
+    "none"
+   ],
+   "answer_type": "number",
+   "normalized": "0",
+   "accuracy": 1.0
+  }
+ ],
+ "accuracy_summary": {
+  "overall": 80.0,
+  "perAnswerType": {
+   "yes/no": 76.0,
+   "unanswerable": 100.0,
+   "other": 78.57,
+   "number": 83.33
+  }
+ },
+ "answerability_case": {
+  "answerable": [
+   1,
+   1,
+   0,
+   1,
+   0,
+   0,
+   1,
+   1,
+   0,
+   1,
+   1,
+   0
+  ],
+  "answerable_score": [
+   0.9,
+   0.8,
+   0.3,
+   0.65,
+   0.55,
+   0.1,
+   0.51,
+   0.49,
+   0.2,
+   0.95,
+   0.7,
+   0.5
+  ],
+  "official": {
+   "average_precision": 90.29,
+   "f1_score": 66.67
+  }
+ }
+}

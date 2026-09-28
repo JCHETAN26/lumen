@@ -1,0 +1,44 @@
+[project]
+name = "lumen"
+version = "0.1.0"
+description = "On-device visual assistant for blind and low-vision users: VizWiz-VQA fine-tuning, answerability, and MLX inference"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+# Core: data pipeline and evaluation only. No torch here, so CI stays fast and the Mac and Kaggle
+# share exactly the same metric code.
+dependencies = [
+    "numpy>=1.26",
+    "pillow>=10",
+    "pyyaml>=6",
+    "scikit-learn>=1.4",  # average_precision_score / f1_score, exactly as the official VizWiz code
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+# GPU training and inference on Kaggle (added in Stage 2, pinned once verified on the T4).
+# Apple-silicon inference with MLX (added in Stage 4).
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Print skip reasons, so a live test skipped for a usage cap or missing credentials is visible.
+addopts = "-rs"
+markers = [
+    "live: calls a real external service (Hugging Face, Kaggle, VizWiz host); skips cleanly on usage caps and missing credentials; excluded from CI",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Generator script that reproduces the official evaluator verbatim; not Lumen code.
+extend-exclude = ["tests/fixtures/make_official_golden.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF003"]  # the official metric's contraction table uses typographic apostrophes

@@ -1,0 +1,78 @@
+# Every dataset file and model Lumen uses, pinned. Code reads this file through lumen.pins;
+# nothing downloads an unpinned artifact.
+#
+# Dataset files: `size` and `etag` were read from the VizWiz host on 2026-09-28. `sha256` is filled
+# in from the first Kaggle `data` run (trust on first use: that run verifies size, computes the
+# hash, and writes it to results/data/observed_hashes.json for committing here). Once a hash is
+# set, every later download must match it or the runner stops.
+
+dataset:
+  name: VizWiz-VQA
+  homepage: https://vizwiz.org/tasks-and-datasets/vqa/
+  license: CC BY 4.0
+  license_url: https://creativecommons.org/licenses/by/4.0/
+  files:
+    annotations:  # train.json + val.json (+ test.json without answers)
+      url: https://vizwiz.cs.colorado.edu/VizWiz_final/vqa_data/Annotations.zip
+      size: 1711273
+      etag: "1a1ca9-5f1efd408b3bc"
+      sha256: null
+    test_answers:  # test answers, publicly released 2026-04-28
+      url: https://vizwiz.cs.colorado.edu/VizWiz_all_answers/VQA_test.json
+      size: 8227183
+      etag: null
+      sha256: null
+    train_images:
+      url: https://vizwiz.cs.colorado.edu/VizWiz_final/images/train.zip
+      size: 11298421598
+      etag: "2a1703b5e-59afdc1e58080"
+      sha256: null
+    val_images:
+      url: https://vizwiz.cs.colorado.edu/VizWiz_final/images/val.zip
+      size: 3488913457
+      etag: "cff49831-59b08b3044b40"
+      sha256: null
+    test_images:  # downloaded only for the single final test evaluation
+      url: https://vizwiz.cs.colorado.edu/VizWiz_final/images/test.zip
+      size: 3975272799
+      etag: "ecf1d95f-59afd88518300"
+      sha256: null
+
+  # The official evaluation code that src/lumen/eval/ ports (from API.zip on the VizWiz host).
+  eval_code:
+    url: https://vizwiz.cs.colorado.edu/VizWiz_final/vqa_data/API.zip
+    path: PythonEvaluationTools/vqaEvaluation/vqaEval.py
+    sha256: d26ef7ac2db06351444c3531f8d95fd9c454423fbcb9fd5dd984f12281146694
+
+# Hugging Face models, pinned by commit SHA (read from the Hub API on 2026-09-28).
+models:
+  smolvlm2-500m:
+    repo: HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+    revision: 7b375e1b73b11138ff12fe22c8f2822d8fe03467
+    license: apache-2.0
+    role: finetune  # the model Lumen fine-tunes and ships
+  smolvlm2-256m:
+    repo: HuggingFaceTB/SmolVLM2-256M-Video-Instruct
+    revision: 067788b187b95ebe7b2e040b3e4299e342e5b8fd
+    license: apache-2.0
+    role: zero-shot baseline
+  smolvlm2-2.2b:
+    repo: HuggingFaceTB/SmolVLM2-2.2B-Instruct
+    revision: 482adb537c021c86670beed01cd58990d01e72e4
+    license: apache-2.0
+    role: zero-shot baseline (upper reference)
+  lfm2.5-vl-450m:
+    repo: LiquidAI/LFM2.5-VL-450M
+    revision: fc6221ca597f3315e4f82fc2df606783267b34ba
+    license: lfm1.0  # LFM Open License: commercial-use restrictions; baseline only
+    role: zero-shot baseline (newer non-SmolVLM challenger)
+
+# LoRA adapters Lumen trains are pushed to private Hub repos and pinned here by commit SHA
+# (Stage 3). The Mac downloads an adapter only by the revision recorded here.
+adapters: {}
+
+splits:
+  seed: 20260928
+  dev_fraction: 0.10       # carved from official train, stratified on answerable (VizWiz has one
+                           # question per image; the loader asserts it, so no image is in both)
+  mac_sample_size: 300     # val questions for on-device tests, stratified on answerable x answer_type

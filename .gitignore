@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Data and models never enter the repo (see CLAUDE.md)
+/data/
+/models/
+*.zip
+*.safetensors
+*.gguf
+*.npz
+
+# Secrets
+.env
+.env.*
+kaggle.json
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Kaggle runner state written next to the repo when run off-Kaggle
+.kaggle-env.sh
