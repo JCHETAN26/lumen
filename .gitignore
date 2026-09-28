@@ -28,3 +28,8 @@ kaggle.json
 
 # Kaggle runner state written next to the repo when run off-Kaggle
 .kaggle-env.sh
+
+# Model predictions: never in git (they can repeat private details from users' photos).
+# Stored in a private Hugging Face dataset repo instead; see src/lumen/hub.py.
+*.predictions.jsonl
+/predictions/

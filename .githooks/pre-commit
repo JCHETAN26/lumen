@@ -1,0 +1,4 @@
+#!/bin/sh
+# Blocks commits that stage a model predictions file (see scripts/check_no_predictions.py).
+# Enable once per clone:  git config core.hooksPath .githooks
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check_no_predictions.py"

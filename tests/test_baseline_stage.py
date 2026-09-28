@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from conftest import run_stages
+from conftest import FakeHubApi, run_stages
 
 from lumen.budget import Estimate
 from lumen.zeroshot.backends import FakeBackend
@@ -108,7 +108,7 @@ def test_calibration_stop_then_resume(ready: Path, monkeypatch, capsys) -> None:
         run_stages.cmd_baseline(args(prompt="plain", gpu_hours_left=2.0)) == run_stages.EXIT_BUDGET
     )
     assert "STOPPED (budget)" in capsys.readouterr().out
-    pred = ready / "results" / "baseline" / "smolvlm2-500m" / "dev-plain.predictions.jsonl"
+    pred = ready / "predictions" / "baseline" / "smolvlm2-500m" / "dev-plain.predictions.jsonl"
     answered = len(pred.read_text().splitlines()) - 1  # minus header
     assert 4 <= answered < 10  # calibration batch kept, rest not run
     monkeypatch.setattr(budget, "calibrated_estimate", real)
@@ -150,3 +150,52 @@ def test_stand_in_hf_model_end_to_end(ready: Path, monkeypatch) -> None:
         assert r["smoke"] and r["model"]["stand_in"] and r["metrics"]["n"] == 6
         assert 0 <= r["metrics"]["accuracy"]["overall"] <= 100
     assert not (ready / "results" / "baseline" / "smolvlm2-500m").exists()  # smoke kept apart
+
+
+def test_predictions_go_to_private_hub_never_to_results(ready: Path) -> None:
+    assert run_stages.cmd_baseline(args(prompt="plain")) == 0
+    r = result(ready, "smolvlm2-500m", "dev-plain.json")
+    ptr = r["predictions"]
+    assert ptr["stored"] == "private Hugging Face dataset" and ptr["repo_type"] == "dataset"
+    assert len(ptr["revision"]) == 40 and ptr["lines"] == 11  # header + 10 questions
+    assert ptr["path"] == "baseline/smolvlm2-500m/dev-plain.predictions.jsonl"
+    api = run_stages.make_hub_api()
+    assert ptr["path"] in api.files
+    for root in (ready / "results", ready / "download"):
+        assert not list(root.rglob("*.predictions.jsonl")), f"predictions leaked into {root}"
+    for f in (ready / "results").rglob("*.json"):  # no per-question rows in any result
+        text = f.read_text()
+        assert '"question_id"' not in text and '"raw":' not in text, f
+
+
+@pytest.mark.parametrize(
+    "api", [FakeHubApi(private=False), FakeHubApi(exists=False), FakeHubApi(role="read")]
+)
+def test_storage_preflight_refuses_before_any_gpu_time(ready: Path, monkeypatch, api) -> None:
+    monkeypatch.setattr(run_stages, "make_hub_api", lambda: api)
+    monkeypatch.setattr(run_stages, "make_backend", lambda *a: pytest.fail("loaded a model"))
+    assert run_stages.cmd_baseline(args(prompt="plain")) == run_stages.EXIT_STORAGE
+    assert not api.files
+
+
+def test_upload_failure_is_recorded_then_rerun_uploads(ready: Path, monkeypatch) -> None:
+    api = FakeHubApi()
+    monkeypatch.setattr(run_stages, "make_hub_api", lambda: api)
+    api.fail_upload = True  # preflight passes; the upload itself fails
+    assert run_stages.cmd_baseline(args(prompt="plain")) == run_stages.EXIT_STORAGE
+    failed = result(ready, "smolvlm2-500m", "dev-plain.json")["predictions"]
+    assert failed["stored"] == "upload failed" and "hub unreachable" in failed["error"]
+    api.fail_upload = False
+    assert run_stages.cmd_baseline(args(prompt="plain")) == 0
+    ok = result(ready, "smolvlm2-500m", "dev-plain.1.json")
+    assert ok["run"]["new"] == 0 and ok["run"]["resumed"] == 10  # nothing re-answered
+    assert ok["predictions"]["stored"] == "private Hugging Face dataset"
+
+
+def test_smoke_runs_are_not_uploaded(ready: Path) -> None:
+    assert run_stages.cmd_baseline(args(prompt="plain", limit=4)) == 0
+    r = json.loads(
+        (ready / "results" / "baseline" / "smoke" / "smolvlm2-500m" / "dev-plain.json").read_text()
+    )
+    assert r["predictions"]["stored"].startswith("local only")
+    assert not run_stages.make_hub_api().files

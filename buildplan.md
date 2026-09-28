@@ -96,8 +96,9 @@ total ≈ 10.2 (`--dry-run`). MLX on the Mac is confirmed early (`results/mac/ml
   model gets an average precision, not just a hard label.
 - `baseline` stage behind the GPU guard: prior estimate → calibration on 64 dev questions →
   re-check → run. Resumable (per-question predictions appended to JSONL).
-- Results: val accuracy (overall + per answer type), AP, F1, 95% bootstrap CIs, predictions
-  file, GPU hours estimated vs. used.
+- Results: val accuracy (overall + per answer type), AP, F1, 95% bootstrap CIs, GPU hours
+  estimated vs. used. Prediction files go to the private Hub dataset (never git); results record
+  their revision + sha256. Guarded by `scripts/check_no_predictions.py` (pre-commit + CI).
 
 **Done when:** four models × chosen prompt on val, with CIs and hardware recorded.
 
@@ -129,6 +130,12 @@ adapter pinned.
   baseline that isolates quantization's cost.
 - Latency: time to first token, tokens/s, end-to-end per question; peak memory. Warm-up, then
   repeated runs; median and p90. Power source and throttle state recorded (fanless machine).
+- **Image-resolution settings as well as quantization.** The early MLX check showed latency is
+  dominated by prefilling ~925 image+text tokens (TTFT ≈ 1.8–2.2 s of ≈ 2.4 s), not by decoding.
+  So compare the processor's image budget (max longest edge / number of 512² tiles, e.g. 2048 →
+  1536 → 1024 → 512 px) against bits (fp16 / 8 / 4), as a grid: accuracy and AP on the Mac sample
+  vs. TTFT and memory. Any resolution setting that ships is chosen on dev-derived data only
+  (train-split images on Kaggle), never on val.
 - Final test evaluation (sealed, one run) of the shipped configuration, run on Kaggle.
 
 **Done when:** accuracy and latency tables for fp16 / 8-bit / 4-bit on the Mac, the final test

@@ -101,4 +101,39 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(run_stages, "SPLITS_DIR", tmp_path / "committed_splits")
     monkeypatch.setattr(run_stages, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(run_stages, "_BACKENDS", {})
+    monkeypatch.setattr(run_stages, "PREDICTIONS_DIR", tmp_path / "predictions")
+    hub_api = FakeHubApi()
+    monkeypatch.setattr(run_stages, "make_hub_api", lambda: hub_api)
     return tmp_path
+
+
+class FakeHubApi:
+    """In-memory stand-in for huggingface_hub.HfApi (repo_info, whoami, upload_file)."""
+
+    def __init__(
+        self,
+        *,
+        private: bool = True,
+        exists: bool = True,
+        role: str = "write",
+        fail_upload: bool = False,
+    ) -> None:
+        self.private, self.exists, self.role, self.fail_upload = private, exists, role, fail_upload
+        self.files: dict[str, bytes] = {}
+        self.commits = 0
+
+    def repo_info(self, repo_id: str, repo_type: str):
+        assert repo_type == "dataset"
+        if not self.exists:
+            raise FileNotFoundError(repo_id)
+        return type("Info", (), {"private": self.private})()
+
+    def whoami(self) -> dict:
+        return {"auth": {"accessToken": {"role": self.role}}}
+
+    def upload_file(self, *, path_or_fileobj, path_in_repo, repo_id, repo_type, commit_message):
+        if self.fail_upload:
+            raise ConnectionError("hub unreachable")
+        self.commits += 1
+        self.files[path_in_repo] = Path(path_or_fileobj).read_bytes()
+        return type("Commit", (), {"oid": f"{self.commits:040x}"})()

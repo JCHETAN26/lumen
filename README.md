@@ -28,7 +28,12 @@ uv sync                          # core + dev tools
 uv run ruff check . && uv run ruff format --check .
 uv run pytest -m "not live"      # unit tests (what CI runs)
 uv run pytest -m live            # live checks against Hugging Face / Kaggle / VizWiz host
+git config core.hooksPath .githooks   # once per clone: blocks committing model predictions
 ```
+
+Model prediction files never enter git: they can repeat private details from users' photos. They
+are stored in a private Hugging Face dataset, and results here keep only aggregate scores plus a
+pinned pointer. A pre-commit hook and CI (`scripts/check_no_predictions.py`) enforce this.
 
 GPU work runs on Kaggle: see [`kaggle/README.md`](kaggle/README.md).
 

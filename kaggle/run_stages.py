@@ -61,6 +61,14 @@ DATA_DIR = Path(
         "LUMEN_DATA_DIR", "/kaggle/working/lumen-data" if ON_KAGGLE else REPO_ROOT / "data"
     )
 )
+# Prediction files never enter git or the download folder (lumen.hub): locally they live here
+# (outside results/, gitignored off-Kaggle), and completed runs upload them to a private Hub repo.
+PREDICTIONS_DIR = Path(
+    os.environ.get(
+        "LUMEN_PREDICTIONS_DIR",
+        "/kaggle/working/lumen-predictions" if ON_KAGGLE else REPO_ROOT / "predictions",
+    )
+)
 RESULTS = REPO_ROOT / "results"
 SPLIT_FILES = {
     "train_fit": "train_fit.txt",
@@ -290,7 +298,7 @@ def cmd_mac_sample(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------------------- baseline
 
 BASELINE_DIR = "baseline"
-EXIT_BUDGET, EXIT_NON_FINITE = 3, 4
+EXIT_BUDGET, EXIT_NON_FINITE, EXIT_STORAGE = 3, 4, 5
 SESSION_START = time.monotonic()
 
 
@@ -320,6 +328,23 @@ def _load_split(split: str, pins, *, limit: int | None) -> tuple[list[Record], P
 
 def _run_dir(model_key: str, smoke: bool) -> Path:
     return RESULTS / BASELINE_DIR / ("smoke" if smoke else "") / model_key
+
+
+def _pred_path(model_key: str, split: str, prompt_key: str, smoke: bool) -> Path:
+    return (
+        PREDICTIONS_DIR
+        / BASELINE_DIR
+        / ("smoke" if smoke else "")
+        / model_key
+        / f"{split}-{prompt_key}.predictions.jsonl"
+    )
+
+
+def make_hub_api():
+    """Tests replace this with a fake Hub client."""
+    from lumen import hub
+
+    return hub.make_api()
 
 
 def _dev_selected_prompt(model_key: str) -> tuple[str, dict]:
@@ -399,7 +424,7 @@ def _baseline_one(
     smoke = args.limit is not None or args.stand_in
     records, zip_path = _load_split(split, pins, limit=args.limit)
     run_dir = _run_dir(model_key, smoke)
-    pred_path = run_dir / f"{split}-{prompt_key}.predictions.jsonl"
+    pred_path = _pred_path(model_key, split, prompt_key, smoke)
     _, done = read_predictions(pred_path)
     remaining = len([r for r in records if r["question_id"] not in done])
     prior = estimate_run(model_key, split, prompt_key, remaining)
@@ -471,19 +496,25 @@ def _baseline_one(
         "run": None
         if stats is None
         else {"new": stats.new, "resumed": stats.resumed, "seconds": round(stats.seconds, 1)},
-        "predictions_file": pred_path.name,
-        "predictions_sha256": hashlib.sha256(pred_path.read_bytes()).hexdigest(),
     }
     if status == "completed":
         payload["metrics"] = score_predictions(records, preds)
     else:
         payload["answered"] = len(preds)
+    payload["predictions"], storage_error = _store_predictions(
+        pred_path, model_key, split, prompt_key, smoke=smoke or status != "completed"
+    )
     result = write_result(run_dir / f"{split}-{prompt_key}.json", payload)
     collect(result, f"{BASELINE_DIR}/{'smoke/' if smoke else ''}{model_key}")
-    collect(pred_path, f"{BASELINE_DIR}/{'smoke/' if smoke else ''}{model_key}")
     if status != "completed":
         print(f"FAILED: {error}\n   recorded in {result}")
         return EXIT_NON_FINITE
+    if storage_error:
+        print(
+            f"STORAGE FAILED: {storage_error}\n   predictions kept at {pred_path}; the rerun "
+            "resumes (nothing to answer), re-scores, and uploads again."
+        )
+        return EXIT_STORAGE
     m = payload["metrics"]
     print(
         f"   accuracy {m['accuracy']['overall']:.2f} "
@@ -492,6 +523,35 @@ def _baseline_one(
         f"said-unanswerable {100 * m['said_unanswerable_rate']:.1f}%  ({hours:.2f} h)"
     )
     return 0
+
+
+def _store_predictions(
+    pred_path: Path, model_key: str, split: str, prompt_key: str, *, smoke: bool
+) -> tuple[dict, str | None]:
+    """Upload a completed run's predictions to the private Hub repo; return (pointer, error).
+
+    Smoke and failed runs are not uploaded: their files stay on local disk only. Either way the
+    result in git gets metadata (sha256, pointer), never the predictions themselves.
+    """
+    from lumen import hub
+
+    local = {
+        "sha256": hashlib.sha256(pred_path.read_bytes()).hexdigest(),
+        "local_file": pred_path.name,
+    }
+    if smoke:
+        return {**local, "stored": "local only (smoke or failed run; not uploaded)"}, None
+    try:
+        pointer = hub.upload(
+            make_hub_api(),
+            hub.predictions_repo(),
+            pred_path,
+            f"{BASELINE_DIR}/{model_key}/{pred_path.name}",
+            f"{model_key} {split} {prompt_key} predictions",
+        )
+    except Exception as e:  # recorded, never swallowed: the stage exits nonzero
+        return {**local, "stored": "upload failed", "error": f"{type(e).__name__}: {e}"}, str(e)
+    return {**pointer, "stored": "private Hugging Face dataset"}, None
 
 
 def _baseline_plan(models: list[str], split: str, prompts: list[str], args) -> list[tuple]:
@@ -508,10 +568,7 @@ def _baseline_plan(models: list[str], split: str, prompts: list[str], args) -> l
     for m in models:
         for p in prompts:
             n = min(n_split[split], args.limit) if args.limit else n_split[split]
-            pred = (
-                _run_dir(m, args.limit is not None or args.stand_in)
-                / f"{split}-{p}.predictions.jsonl"
-            )
+            pred = _pred_path(m, split, p, args.limit is not None or args.stand_in)
             done = len(read_predictions(pred)[1])
             plan.append((m, p, n - done, estimate_run(m, split, p, max(n - done, 0))))
     del pins
@@ -560,6 +617,16 @@ def cmd_baseline(args: argparse.Namespace) -> int:
             verdict = "fits" if total + 1.0 <= args.gpu_hours_left else "DOES NOT FIT"
             print(f"with a 1.0 h reserve and {args.gpu_hours_left:.1f} h left: {verdict}")
         return 0
+
+    if not (args.limit is not None or args.stand_in):
+        # Check the private predictions repo before spending any GPU time.
+        from lumen import hub
+
+        try:
+            hub.preflight(make_hub_api(), hub.predictions_repo())
+        except hub.HubError as e:
+            print(f"NOT STARTED (predictions storage): {e}")
+            return EXIT_STORAGE
 
     for m in models:
         for p in prompts_by_model[m]:

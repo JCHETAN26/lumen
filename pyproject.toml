@@ -26,6 +26,7 @@ gpu = [
     "transformers==5.17.0",
     "accelerate==1.15.0",
     "num2words==0.5.14",  # required by the SmolVLM processor
+    "huggingface-hub==1.33.0",  # private predictions + adapter repos (lumen.hub)
 ]
 # Apple-silicon inference with MLX (Mac only).
 mlx = [

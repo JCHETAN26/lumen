@@ -40,8 +40,10 @@ data at all.
 
 1. A Kaggle account with **phone verification** (needed for GPU and internet).
 2. A **GitHub fine-grained token** with *Contents: read* on `JCHETAN26/lumen` only.
-3. *(Stage 3)* A **Hugging Face fine-grained token** with write access to the private adapter
-   repo only (not account-wide), used to push LoRA adapters.
+3. *(Stage 2)* A **private Hugging Face dataset repo** `JCHETAN26/lumen-predictions` (create it on
+   huggingface.co as *private*), and a **fine-grained HF token** with write access to it and, from
+   Stage 3, to the private adapter repo (nothing account-wide). Prediction files are stored there,
+   never in git; the runner refuses to start if the repo is missing, public, or not writable.
 
 ## 2. Create the notebook
 
@@ -51,7 +53,7 @@ data at all.
    - **Internet: On.**
    - **Persistence: Variables and Files**, so the 15 GB of zips and partial downloads survive a
      restart (downloads resume from where they stopped).
-3. **Add-ons → Secrets:** add `GITHUB_TOKEN` (and, from Stage 3, `HF_TOKEN`) and attach them.
+3. **Add-ons → Secrets:** add `GITHUB_TOKEN` and (from Stage 2) `HF_TOKEN`, and attach them.
 
 ## 3. Cells
 
@@ -108,10 +110,15 @@ $B --model all --split val --prompt dev-selected --gpu-hours-left H
   AP). Explicit prompts on val are refused.
 - **fp16 on the T4:** non-finite logits stop the run and write a `failed_non_finite` result; nothing
   is scored silently.
-- **Outputs:** `baseline/<model>/<split>-<prompt>.json` (metrics with bootstrap CIs, GPU hours
-  estimated vs. used, full run metadata) and `.predictions.jsonl` (raw and extracted answers, P(unanswerable)).
-  Commit both to `results/baseline/`. Prediction files contain model outputs about users' photos:
-  keep them in this private repo, and never quote them publicly.
+- **Outputs:** `baseline/<model>/<split>-<prompt>.json`: aggregate metrics with bootstrap CIs,
+  GPU hours estimated vs. used, full run metadata, and a **pointer** to the predictions (Hub repo,
+  path, commit revision, sha256). Commit these to `results/baseline/`.
+- **Predictions never enter git.** Per-question outputs (raw and extracted answers, P(unanswerable))
+  can repeat private details from users' photos, this repo will be public, and git history is
+  permanent. Completed runs upload `.predictions.jsonl` to the private Hub dataset; smoke and failed
+  runs keep them on Kaggle's disk only. `lumen.hub.download(pointer)` fetches one at its pinned
+  revision and verifies its sha256. If an upload fails, the stage exits 5 and a rerun re-uploads
+  without re-answering anything.
 
 ## 4. What to download, and where it goes
 
@@ -125,7 +132,7 @@ Mac. Copy only files that don't exist yet; never overwrite a committed result.
 | `splits/*.txt` | `configs/splits/` (these become the pinned splits) |
 | `mac_sample/*.tar.gz` | **not committed**: extract to `data/mac_sample/` on the Mac (gitignored) |
 | `mac_sample_val_*.json` | `results/mac_sample/` (records the archive's sha256) |
-| `baseline/<model>/*` | `results/baseline/<model>/` (`baseline/smoke/` too, if you want the checks kept) |
+| `baseline/<model>/*.json` | `results/baseline/<model>/` (`baseline/smoke/` too, if you want the checks kept) |
 
 After the first `data` run, copy the sha256 values from `observed_hashes.json` into
 `configs/pins.yaml`. From then on, any download that doesn't match stops the run.

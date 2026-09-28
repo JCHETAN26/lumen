@@ -2,6 +2,36 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-09-28: Predictions out of git; on-device latency is prefill-bound
+
+**Decision: prediction files never enter git.** Per-question predictions (raw and extracted
+answers, P(unanswerable)) can repeat private details from the photos, e.g. text on mail or
+medicine the model read aloud. The repo will become public and git history is permanent, so
+"keep them in a private repo" is not enough. Now:
+- They're stored in a **private Hugging Face dataset repo** (`JCHETAN26/lumen-predictions`,
+  `predictions.repo` in pins). Each result in git records a pointer: path, Hub commit revision,
+  sha256, line count. `lumen.hub.download` fetches at that revision and checks the sha256.
+- Before any GPU time, the runner checks the repo exists, is **private**, and the token can write.
+  An upload failure exits 5 with the error recorded; the rerun re-scores and re-uploads without
+  re-answering. Smoke and failed runs are never uploaded (local disk only).
+- Locally, predictions live outside `results/` and the Kaggle download folder, and are gitignored.
+- `scripts/check_no_predictions.py` (stdlib only) blocks them as a pre-commit hook (`.githooks/`)
+  and in CI, which scans tracked files **and the full history** (checkout uses `fetch-depth: 0`).
+  It matches by name and by content (the predictions header), so renaming doesn't slip through.
+  Verified: no predictions file was ever committed; history is clean.
+- Needs from the user: create the private dataset repo; give the HF_TOKEN secret write access to
+  it.
+
+**On-device latency is prefill-bound (from the MLX smoke check).** SmolVLM2-500M spends ≈ 1.8–2.2 s
+of a ≈ 2.3–2.5 s answer prefilling ~925 tokens, nearly all of them image tokens (the processor
+tiles each photo into up to 16 × 512² tiles plus a global view, 64 tokens each), and only
+~0.05–0.1 s decoding a short answer. Quantization mostly shrinks memory and speeds decoding; it
+won't remove the prefill cost. **Stage 4 therefore measures image-resolution settings (image
+budget / tile count) as a second axis next to quantization**, reporting accuracy and AP against
+TTFT and memory for each combination. Lower resolution may hurt exactly the questions blind users
+ask most (reading text), so the per-answer-type breakdown matters, and the setting that ships is
+chosen without looking at val.
+
 ## 2026-09-28: Build-ahead during the Kaggle data run (Stage 2 code, MLX check)
 
 **Mac shutdown.** The Mac overheated and shut down mid-session while this work was in progress.

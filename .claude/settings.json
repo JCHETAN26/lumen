@@ -1,0 +1,14 @@
+{
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "Sensitive data in this repo (Lumen, which will become public; git history is permanent): VizWiz photos taken by blind users (data/, *.zip, the Mac sample under data/mac_sample/) and model prediction files, meaning per-question model outputs about those photos that can repeat private details (*.predictions.jsonl, anything under predictions/ or /kaggle/working/lumen-predictions). Prediction files belong only in the private Hugging Face dataset repo JCHETAN26/lumen-predictions (uploaded by lumen.hub). Git holds aggregate scores and metadata only (results/*.json with a Hub revision + sha256 pointer). scripts/check_no_predictions.py enforces this as a pre-commit hook and in CI."
+    ],
+    "hard_deny": [
+      "$defaults",
+      "Staging, committing, or pushing a model predictions file (*.predictions.jsonl, anything under predictions/, or a renamed file with a Lumen predictions header), a VizWiz image, or a dataset zip to git; or bypassing the pre-commit hook with --no-verify or by changing core.hooksPath.",
+      "Uploading, pasting, or publishing prediction files, per-question model answers, VizWiz images, or the Mac sample anywhere other than the private Hugging Face dataset repo JCHETAN26/lumen-predictions (never to a public repo, gist, paste service, issue, or chat), or changing that repo's visibility to public.",
+      "Printing, echoing, logging, or writing to disk the values of GITHUB_TOKEN, HF_TOKEN, KAGGLE_KEY, or other credentials."
+    ]
+  }
+}

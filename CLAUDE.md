@@ -20,8 +20,9 @@ starting new work. Key decisions and anything that went wrong go in `docs/devlog
   The notebook clones with a GitHub token from Kaggle Secrets; the token is never printed and
   never written to disk.
 - Only result files come back from Kaggle, plus the ~300-image pinned Mac sample. LoRA adapters
-  go to a private Hugging Face Hub repo (token: Kaggle secret scoped to that repo) and are pinned
-  by commit SHA in `configs/pins.yaml`.
+  and model prediction files go to private Hugging Face Hub repos (token: Kaggle secret scoped to
+  those repos). Adapters are pinned by commit SHA in `configs/pins.yaml`; each result records its
+  predictions file's Hub revision and sha256.
 - **Kaggle GPU quota:** every GPU stage estimates its GPU hours first (`lumen.budget`) and refuses
   to start if the estimate plus a 1 h reserve exceeds `--gpu-hours-left`. CPU-only stages
   (`data`, `mac_sample`) run with Accelerator: None.
@@ -101,16 +102,31 @@ starting new work. Key decisions and anything that went wrong go in `docs/devlog
 ## Data ethics
 
 VizWiz photos were taken by blind people asking for help and can contain private information.
-Never commit, display, or redistribute them, and never quote private details from them. Model
-prediction files (`*.predictions.jsonl`) can repeat such details: they stay in this private repo
-and are never quoted publicly; on-device smoke checks store scores, not answer text. See the
+Never commit, display, or redistribute them, and never quote private details from them. See the
 README's "Respectful use" section. The dataset is CC BY 4.0: cite Gurari et al., CVPR 2018.
+
+**Model predictions never enter git.** Per-question outputs (`*.predictions.jsonl`: raw and
+extracted answers, P(unanswerable)) can repeat private details from the photos, this repo will
+become public, and git history is permanent.
+- They live only in the **private** Hugging Face dataset repo `JCHETAN26/lumen-predictions`
+  (`predictions.repo` in pins), uploaded by `lumen.hub`. The runner checks that the repo exists, is
+  private, and is writable before any GPU time is spent, and refuses a public repo.
+- Git gets **aggregate scores and metadata only**, plus a pointer (repo, path, Hub commit revision,
+  sha256). Fetch a file with `lumen.hub.download(pointer)`, which verifies the sha256.
+- Locally they sit outside `results/` (`predictions/` or `/kaggle/working/lumen-predictions`), are
+  gitignored, and never go in Kaggle's download folder.
+- `scripts/check_no_predictions.py` enforces this. As a pre-commit hook it blocks staging (enable
+  once per clone: `git config core.hooksPath .githooks`); CI checks every tracked file and the whole
+  history. It matches by name and by content, so a renamed predictions file is still caught.
+- Never bypass it (`--no-verify`). If a predictions file ever lands in a commit, stop: the history
+  must be rewritten before the repo is made public.
+- On-device checks store scores, not answer text.
 
 ## Secrets
 
 - Never commit secrets. `.env` and `kaggle.json` are gitignored.
-- Kaggle Secrets: `GITHUB_TOKEN` (Contents: read on this repo) and `HF_TOKEN` (write, scoped to
-  the adapter repo).
+- Kaggle Secrets: `GITHUB_TOKEN` (Contents: read on this repo) and `HF_TOKEN` (fine-grained write,
+  scoped to the private predictions dataset and the adapter repo only).
 
 ## Workflow
 

@@ -80,7 +80,7 @@ class FakeBackend:
         self.calls = 0
 
     def describe(self) -> dict[str, Any]:
-        return {"backend": "fake", "answer": self.answer}
+        return {"backend": "fake", "fixed_answer": self.answer}
 
     def run_batch(self, images: list[Image.Image], messages: list[list[dict]]) -> list[BatchOutput]:
         self.calls += 1

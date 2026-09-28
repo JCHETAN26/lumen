@@ -21,6 +21,12 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # full history: the predictions check scans every commit
+
+      # Model predictions can repeat private details from users' photos; they must never be in git.
+      - name: No predictions files in git (tracked or history)
+        run: python3 scripts/check_no_predictions.py --tracked --history
 
       - uses: astral-sh/setup-uv@v10
         with:

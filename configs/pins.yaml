@@ -72,6 +72,12 @@ models:
 # (Stage 3). The Mac downloads an adapter only by the revision recorded here.
 adapters: {}
 
+# Model prediction files never enter git: they hold model outputs about users' photos and can
+# repeat private details, and this repo will become public. They go to a private Hugging Face
+# dataset repo; each result in git records the file's path, Hub commit revision, and sha256.
+predictions:
+  repo: JCHETAN26/lumen-predictions  # private *dataset* repo; HF_TOKEN needs write access
+
 splits:
   seed: 20260928
   dev_fraction: 0.10       # carved from official train, stratified on answerable (VizWiz has one
