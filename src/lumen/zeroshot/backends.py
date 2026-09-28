@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import logging
 import math
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, Protocol
@@ -27,6 +28,22 @@ if TYPE_CHECKING:
     import torch
 
 UNANSWERABLE_VARIANTS = ("unanswerable", "Unanswerable", " unanswerable", " Unanswerable")
+
+# transformers 5.17 logs this from inside apply_chat_template on every call, even a bare one
+# (see tests/test_hf_backend.py::test_generation_prompt_is_applied). Once per question it would add
+# ~16k identical lines to a Stage 2 notebook. Only this exact message is dropped.
+_NOISY = "have to be in `processor_kwargs` dict, not in `**kwargs`"
+
+
+class _DropProcessorKwargsWarning(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return _NOISY not in record.getMessage()
+
+
+def _quiet_processor_kwargs_warning() -> None:
+    log = logging.getLogger("transformers.processing_utils")
+    if not any(isinstance(f, _DropProcessorKwargsWarning) for f in log.filters):
+        log.addFilter(_DropProcessorKwargsWarning())
 
 
 @dataclass(frozen=True)
@@ -119,6 +136,7 @@ class HFBackend:
         self.model = model.eval()
         self.processor = processor
         self.processor.tokenizer.padding_side = "left"  # batched generation needs left padding
+        _quiet_processor_kwargs_warning()
         self.device = device
         self.gen = gen
         self.pin = pin

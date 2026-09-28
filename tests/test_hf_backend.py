@@ -101,3 +101,18 @@ def test_generation_prompt_is_applied(backend) -> None:
         "lfm2.5-vl-450m-stand-in": "<|im_start|>assistant\n",
     }[backend.name]
     assert text.endswith(expected)
+
+
+def test_only_the_known_noisy_warning_is_dropped(backend, caplog) -> None:
+    import logging
+
+    log = logging.getLogger("transformers.processing_utils")
+    with caplog.at_level(logging.WARNING, logger="transformers.processing_utils"):
+        log.propagate = True
+        log.warning(
+            "Kwargs passed to `processor.__call__` have to be in `processor_kwargs` dict, "
+            "not in `**kwargs`"
+        )
+        log.warning("some other warning")
+    messages = [r.getMessage() for r in caplog.records]
+    assert messages == ["some other warning"]
