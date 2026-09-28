@@ -327,15 +327,23 @@ def _load_split(split: str, pins, *, limit: int | None) -> tuple[list[Record], P
     return records, fetch_pinned(zip_pin, DATA_DIR).path
 
 
-def _run_dir(model_key: str, smoke: bool) -> Path:
-    return RESULTS / BASELINE_DIR / ("smoke" if smoke else "") / model_key
+def _run_kind(args: argparse.Namespace) -> str:
+    """ "" for real runs; smoke runs are kept apart, and stand-in smoke runs apart from real-model
+    smoke runs (same model key, different weights: their prediction files must never meet)."""
+    if args.stand_in:
+        return "stand-in"
+    return "smoke" if args.limit is not None else ""
 
 
-def _pred_path(model_key: str, split: str, prompt_key: str, smoke: bool) -> Path:
+def _run_dir(model_key: str, kind: str) -> Path:
+    return RESULTS / BASELINE_DIR / kind / model_key
+
+
+def _pred_path(model_key: str, split: str, prompt_key: str, kind: str) -> Path:
     return (
         PREDICTIONS_DIR
         / BASELINE_DIR
-        / ("smoke" if smoke else "")
+        / kind
         / model_key
         / f"{split}-{prompt_key}.predictions.jsonl"
     )
@@ -352,8 +360,8 @@ def _dev_selected_prompt(model_key: str) -> tuple[str, dict]:
     """The prompt with the best dev accuracy (ties: higher dev AP, then name). Dev only."""
     found = {}
     for key in PROMPTS:
-        files = sorted(_run_dir(model_key, False).glob(f"dev-{key}.json")) + sorted(
-            _run_dir(model_key, False).glob(f"dev-{key}.[0-9]*.json")
+        files = sorted(_run_dir(model_key, "").glob(f"dev-{key}.json")) + sorted(
+            _run_dir(model_key, "").glob(f"dev-{key}.[0-9]*.json")
         )
         if not files:
             raise SystemExit(
@@ -422,10 +430,11 @@ def _baseline_one(
     )
 
     pins = load_pins()
-    smoke = args.limit is not None or args.stand_in
+    kind = _run_kind(args)
+    smoke = kind != ""
     records, zip_path = _load_split(split, pins, limit=args.limit)
-    run_dir = _run_dir(model_key, smoke)
-    pred_path = _pred_path(model_key, split, prompt_key, smoke)
+    run_dir = _run_dir(model_key, kind)
+    pred_path = _pred_path(model_key, split, prompt_key, kind)
     _, done = read_predictions(pred_path)
     remaining = len([r for r in records if r["question_id"] not in done])
     prior = estimate_run(model_key, split, prompt_key, remaining)
@@ -506,7 +515,7 @@ def _baseline_one(
         pred_path, model_key, split, prompt_key, smoke=smoke or status != "completed"
     )
     result = write_result(run_dir / f"{split}-{prompt_key}.json", payload)
-    collect(result, f"{BASELINE_DIR}/{'smoke/' if smoke else ''}{model_key}")
+    collect(result, str(Path(BASELINE_DIR) / kind / model_key))
     if status != "completed":
         print(f"FAILED: {error}\n   recorded in {result}")
         return EXIT_NON_FINITE
@@ -569,7 +578,7 @@ def _baseline_plan(models: list[str], split: str, prompts: list[str], args) -> l
     for m in models:
         for p in prompts:
             n = min(n_split[split], args.limit) if args.limit else n_split[split]
-            pred = _pred_path(m, split, p, args.limit is not None or args.stand_in)
+            pred = _pred_path(m, split, p, _run_kind(args))
             done = len(read_predictions(pred)[1])
             plan.append((m, p, n - done, estimate_run(m, split, p, max(n - done, 0))))
     del pins

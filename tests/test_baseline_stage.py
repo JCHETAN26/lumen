@@ -145,7 +145,7 @@ def test_stand_in_hf_model_end_to_end(ready: Path, monkeypatch) -> None:
     assert code == 0
     for model in ("smolvlm2-500m", "lfm2.5-vl-450m"):
         r = json.loads(
-            (ready / "results" / "baseline" / "smoke" / model / "dev-abstain.json").read_text()
+            (ready / "results" / "baseline" / "stand-in" / model / "dev-abstain.json").read_text()
         )
         assert r["smoke"] and r["model"]["stand_in"] and r["metrics"]["n"] == 6
         assert 0 <= r["metrics"]["accuracy"]["overall"] <= 100
@@ -207,3 +207,37 @@ def test_storage_check_covers_both_private_repos(env: Path, monkeypatch, capsys)
     assert "cjitendr/lumen-predictions (dataset)" in out and "cjitendr/lumen-adapter (model)" in out
     monkeypatch.setattr(run_stages, "make_hub_api", lambda: FakeHubApi(private=False))
     assert run_stages.cmd_storage_check(argparse.Namespace()) == run_stages.EXIT_STORAGE
+
+
+def test_stand_in_and_real_smoke_runs_never_share_files(ready: Path, monkeypatch) -> None:
+    """Regression (Kaggle, 2026-09-28): a stand-in run and a --limit run of the same model wrote
+    the same smoke predictions file; the second run hit HeaderMismatch."""
+    from lumen.zeroshot.backends import FakeBackend
+
+    class StandIn(FakeBackend):
+        def describe(self):
+            return {
+                "backend": "transformers",
+                "model_key": "smolvlm2-500m-stand-in",
+                "stand_in": True,
+            }
+
+    monkeypatch.setattr(
+        run_stages, "make_backend", lambda key, a: StandIn() if a.stand_in else FakeBackend()
+    )
+    assert (
+        run_stages.cmd_baseline(
+            args(prompt="abstain", stand_in=True, limit=4, device="cpu", gpu_hours_left=None)
+        )
+        == 0
+    )
+    assert run_stages.cmd_baseline(args(prompt="abstain", limit=8)) == 0
+    base = ready / "predictions" / "baseline"
+    assert (base / "stand-in" / "smolvlm2-500m" / "dev-abstain.predictions.jsonl").exists()
+    assert (base / "smoke" / "smolvlm2-500m" / "dev-abstain.predictions.jsonl").exists()
+    real = json.loads(
+        (
+            ready / "results" / "baseline" / "smoke" / "smolvlm2-500m" / "dev-abstain.json"
+        ).read_text()
+    )
+    assert real["run"]["resumed"] == 0 and real["metrics"]["n"] == 8

@@ -2,6 +2,26 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-09-28: Kaggle quick checks: stand-in/smoke path collision (fixed)
+
+Quick check 1 (tiny stand-ins on the T4) passed for both model families: data, processors, chat
+templates, batched generation, scoring, and smoke-result writing all work on the GPU. The random
+weights give 0 accuracy and chance-level AP, as expected.
+
+Quick check 2 (SmolVLM2-500M, 32 real questions) stopped before answering anything. Stand-in and
+`--limit` smoke runs shared `baseline/smoke/<model>/` paths, so the real-model run found the
+stand-in's 16 answers in "its" predictions file. The header check refused to mix them, which is
+exactly its job: nothing was scored. Fix: separate run kinds, `baseline/stand-in/` vs
+`baseline/smoke/`, with a regression test that runs both back to back. The stale file on Kaggle
+has to be removed once by hand (it's smoke data, nothing of value).
+
+Harmless warnings seen on Kaggle and why: transformers 5.17 logs "Kwargs passed to
+processor.__call__" from inside apply_chat_template even for a bare call (a test now pins that
+the assistant turn is still opened); SmolVLM's config has an out-of-vocabulary pad_token_id
+(generation gets the tokenizer's pad id explicitly); LFM uses the slower reference causal-conv1d
+path because the CUDA kernel isn't installed. LFM's calibration batch will show whether that
+matters for its GPU-hour estimate.
+
 ## 2026-09-28: Predictions out of git; on-device latency is prefill-bound
 
 **Decision: prediction files never enter git.** Per-question predictions (raw and extracted
