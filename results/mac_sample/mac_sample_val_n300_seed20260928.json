@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-09-28T08:43:28+00:00",
+    "git": {
+      "commit": "48788b5515ac10cf48ad4c42effdeafc35ab487e",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.12.90+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        0.39,
+        0.43,
+        0.34
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.20GHz",
+      "memory_gib": 31.3,
+      "gpus": [],
+      "kaggle": true
+    },
+    "python": "3.12.13",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": null,
+      "transformers": null,
+      "peft": null,
+      "trl": null,
+      "accelerate": null,
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "mac_sample"
+    ]
+  },
+  "stage": "mac_sample",
+  "n": 300,
+  "archive": "mac_sample_val_n300_seed20260928.tar.gz",
+  "archive_sha256": "415d27e576d1b7bb9246620efdda61ae3c34715a0d9d1410bca675fc502db461",
+  "archive_bytes": 142319434,
+  "ids_source": "results/splits/mac_sample_val.txt",
+  "summary": {
+    "n": 300,
+    "has_answers": true,
+    "answerable_rate": 0.68,
+    "answer_type_counts": {
+      "number": 3,
+      "other": 187,
+      "unanswerable": 96,
+      "yes/no": 14
+    },
+    "answers_per_question": {
+      "10": 300
+    },
+    "gt_answers_not_in_normalized_form": 23,
+    "gt_answers_total": 3000
+  }
+}

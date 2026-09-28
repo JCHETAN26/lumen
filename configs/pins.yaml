@@ -1,10 +1,11 @@
 # Every dataset file and model Lumen uses, pinned. Code reads this file through lumen.pins;
 # nothing downloads an unpinned artifact.
 #
-# Dataset files: `size` and `etag` were read from the VizWiz host on 2026-09-28. `sha256` is filled
-# in from the first Kaggle `data` run (trust on first use: that run verifies size, computes the
-# hash, and writes it to results/data/observed_hashes.json for committing here). Once a hash is
-# set, every later download must match it or the runner stops.
+# Dataset files: `size` and `etag` were read from the VizWiz host on 2026-09-28. `sha256` values
+# come from the first Kaggle `data` run (2026-09-28, commit 48788b5; results/data/observed_hashes.json)
+# and are enforced from then on: any download that doesn't match stops the runner. Files still
+# null (test_answers, test_images) are fetched only by the sealed final test run, which pins them
+# the same way on first use.
 
 dataset:
   name: VizWiz-VQA
@@ -16,7 +17,7 @@ dataset:
       url: https://vizwiz.cs.colorado.edu/VizWiz_final/vqa_data/Annotations.zip
       size: 1711273
       etag: "1a1ca9-5f1efd408b3bc"
-      sha256: null
+      sha256: dbc32fc1e3f1b1039aea906030d569d6c238b4ddb2eea5e3453a6a565c829ec9
     test_answers:  # test answers, publicly released 2026-04-28
       url: https://vizwiz.cs.colorado.edu/VizWiz_all_answers/VQA_test.json
       size: 8227183
@@ -26,12 +27,12 @@ dataset:
       url: https://vizwiz.cs.colorado.edu/VizWiz_final/images/train.zip
       size: 11298421598
       etag: "2a1703b5e-59afdc1e58080"
-      sha256: null
+      sha256: f31d712fe0bd6b136b100b7d5677b0006dcda64704f0b5f7af2f5f1373215d74
     val_images:
       url: https://vizwiz.cs.colorado.edu/VizWiz_final/images/val.zip
       size: 3488913457
       etag: "cff49831-59b08b3044b40"
-      sha256: null
+      sha256: 7cc829c1fbcbc9ffd0a895f9df33d4b365557289c037a578ea9f812e41422469
     test_images:  # downloaded only for the single final test evaluation
       url: https://vizwiz.cs.colorado.edu/VizWiz_final/images/test.zip
       size: 3975272799

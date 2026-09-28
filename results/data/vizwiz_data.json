@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-09-28T08:36:33+00:00",
+    "git": {
+      "commit": "48788b5515ac10cf48ad4c42effdeafc35ab487e",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.12.90+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        0.92,
+        0.49,
+        0.31
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.20GHz",
+      "memory_gib": 31.3,
+      "gpus": [],
+      "kaggle": true
+    },
+    "python": "3.12.13",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": null,
+      "transformers": null,
+      "peft": null,
+      "trl": null,
+      "accelerate": null,
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "data"
+    ]
+  },
+  "stage": "data",
+  "files": {
+    "annotations": {
+      "sha256": "dbc32fc1e3f1b1039aea906030d569d6c238b4ddb2eea5e3453a6a565c829ec9",
+      "size": 1711273,
+      "pinned": false
+    },
+    "train_images": {
+      "sha256": "f31d712fe0bd6b136b100b7d5677b0006dcda64704f0b5f7af2f5f1373215d74",
+      "size": 11298421598,
+      "pinned": false
+    },
+    "val_images": {
+      "sha256": "7cc829c1fbcbc9ffd0a895f9df33d4b365557289c037a578ea9f812e41422469",
+      "size": 3488913457,
+      "pinned": false
+    }
+  },
+  "summary": {
+    "train": {
+      "n": 20523,
+      "has_answers": true,
+      "answerable_rate": 0.7304,
+      "answer_type_counts": {
+        "number": 301,
+        "other": 13733,
+        "unanswerable": 5532,
+        "yes/no": 957
+      },
+      "answers_per_question": {
+        "10": 20523
+      },
+      "gt_answers_not_in_normalized_form": 812,
+      "gt_answers_total": 205230
+    },
+    "val": {
+      "n": 4319,
+      "has_answers": true,
+      "answerable_rate": 0.6793,
+      "answer_type_counts": {
+        "number": 48,
+        "other": 2691,
+        "unanswerable": 1385,
+        "yes/no": 195
+      },
+      "answers_per_question": {
+        "10": 4319
+      },
+      "gt_answers_not_in_normalized_form": 206,
+      "gt_answers_total": 43190
+    }
+  },
+  "image_checks": {
+    "train": {
+      "annotated": 20523,
+      "in_zip": 23954,
+      "unannotated_in_zip": 3431
+    },
+    "val": {
+      "annotated": 4319,
+      "in_zip": 7750,
+      "unannotated_in_zip": 3431
+    }
+  },
+  "splits": {
+    "train_fit": {
+      "n": 18471,
+      "status": "not committed yet"
+    },
+    "dev": {
+      "n": 2052,
+      "status": "not committed yet"
+    },
+    "mac_sample": {
+      "n": 300,
+      "status": "not committed yet"
+    }
+  },
+  "seed": 20260928,
+  "dev_fraction": 0.1
+}

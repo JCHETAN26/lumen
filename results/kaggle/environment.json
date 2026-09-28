@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-09-28T08:18:48+00:00",
+    "git": {
+      "commit": "48788b5515ac10cf48ad4c42effdeafc35ab487e",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.12.90+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        0.19,
+        0.13,
+        0.13
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.20GHz",
+      "memory_gib": 31.3,
+      "gpus": [],
+      "kaggle": true
+    },
+    "python": "3.12.13",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": null,
+      "transformers": null,
+      "peft": null,
+      "trl": null,
+      "accelerate": null,
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "env"
+    ]
+  },
+  "stage": "env"
+}
