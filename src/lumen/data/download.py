@@ -8,6 +8,7 @@ is pinned, any mismatch deletes nothing but raises, so the run stops before usin
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import sys
 import time
@@ -78,24 +79,45 @@ def _fetch(url: str, dest: Path, expected_size: int) -> None:
                 now = time.monotonic()
                 if now - last > 30:
                     rate = (done - have) / max(now - t0, 1e-9) / 2**20
-                    print(f"  {dest.name}: {done / 2**30:.2f}/{expected_size / 2**30:.2f} GiB"
-                          f" ({rate:.0f} MiB/s)", file=sys.stderr, flush=True)
+                    print(
+                        f"  {dest.name}: {done / 2**30:.2f}/{expected_size / 2**30:.2f} GiB"
+                        f" ({rate:.0f} MiB/s)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                     last = now
     if part.stat().st_size != expected_size:
         raise IntegrityError(
-            f"{dest.name}: got {part.stat().st_size} bytes, expected {expected_size}; rerun to resume"
+            f"{dest.name}: got {part.stat().st_size} bytes, expected {expected_size}; "
+            "rerun to resume"
         )
     part.rename(dest)
 
 
+def _sidecar(path: Path) -> Path:
+    return path.with_name(path.name + ".verified.json")
+
+
 def verify(path: Path, pin: FilePin) -> Verified:
-    size = path.stat().st_size
-    if size != pin.size:
-        raise IntegrityError(f"{path.name}: size {size} != pinned {pin.size}")
+    """Check size and sha256. Hashing train.zip takes minutes, so a file already verified
+    against its *pinned* hash is not re-hashed while its size and mtime are unchanged."""
+    st = path.stat()
+    if st.st_size != pin.size:
+        raise IntegrityError(f"{path.name}: size {st.st_size} != pinned {pin.size}")
+    stamp = {"sha256": pin.sha256, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+    side = _sidecar(path)
+    if pin.sha256 is not None and side.exists():
+        try:
+            if json.loads(side.read_text()) == stamp:
+                return Verified(path=path, size=st.st_size, sha256=pin.sha256, pinned=True)
+        except (OSError, json.JSONDecodeError):
+            pass
     digest = sha256_file(path)
     if pin.sha256 is not None and digest != pin.sha256:
         raise IntegrityError(f"{path.name}: sha256 {digest} != pinned {pin.sha256}")
-    return Verified(path=path, size=size, sha256=digest, pinned=pin.sha256 is not None)
+    if pin.sha256 is not None:
+        side.write_text(json.dumps(stamp))
+    return Verified(path=path, size=st.st_size, sha256=digest, pinned=pin.sha256 is not None)
 
 
 def fetch_pinned(pin: FilePin, directory: Path) -> Verified:

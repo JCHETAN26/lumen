@@ -18,8 +18,32 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
-# GPU training and inference on Kaggle (added in Stage 2, pinned once verified on the T4).
-# Apple-silicon inference with MLX (added in Stage 4).
+# Inference and training with PyTorch: CUDA on Kaggle's T4 (cu126 build: supports sm_75 and
+# older drivers than the CUDA 13 build), CPU/MPS wheels from PyPI on the Mac for local tests.
+gpu = [
+    "torch==2.14.0",
+    "torchvision==0.29.0",  # the fast image processors need it
+    "transformers==5.17.0",
+    "accelerate==1.15.0",
+    "num2words==0.5.14",  # required by the SmolVLM processor
+]
+# Apple-silicon inference with MLX (Mac only).
+mlx = [
+    "mlx==0.32.2; sys_platform == 'darwin'",
+    "mlx-vlm==0.7.3; sys_platform == 'darwin'",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

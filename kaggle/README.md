@@ -55,60 +55,21 @@ data at all.
 
 ## 3. Cells
 
-**Clone or update.** The token is read from the secret, never printed, and never written to disk:
+**Clone or update:** the first code cell of `notebook.ipynb`. That cell is the only copy, so
+the code that runs is the code under test. The token:
 
-```python
-import os, subprocess
-from kaggle_secrets import UserSecretsClient
+- is read from the `GITHUB_TOKEN` secret inside a helper and passed to git only as an HTTP
+  `Authorization` header, via `GIT_CONFIG_*` environment variables set for that one git process;
+- never appears in a command line or URL, so a failed clone can't leak it through an exception
+  message (the old cell could: `check=True` puts the full command, token included, into the
+  `CalledProcessError` traceback);
+- is redacted from git's error text before it's shown, and `GIT_TRACE*` variables are cleared;
+- is never written to disk: the stored remote is the plain URL.
 
-token = UserSecretsClient().get_secret("GITHUB_TOKEN")
-os.chdir("/kaggle/working")
-if not os.path.isdir("lumen"):
-    subprocess.run(
-        [
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            f"https://x-access-token:{token}@github.com/JCHETAN26/lumen.git",
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            "lumen",
-            "remote",
-            "set-url",
-            "origin",
-            "https://github.com/JCHETAN26/lumen.git",
-        ],
-        check=True,
-    )
-else:
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            "lumen",
-            "pull",
-            "--ff-only",
-            f"https://x-access-token:{token}@github.com/JCHETAN26/lumen.git",
-            "main",
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-del token
-```
+`tests/test_notebook_clone.py` runs the real cell against a stub git that fails, then succeeds,
+and checks that the token appears nowhere: not in output, exceptions, tracebacks, argv, or files.
 
-Clone and pull output goes to `DEVNULL` because git can echo the remote URL (with the token) in
-error messages. If this cell fails, check the token's scope and expiry rather than re-running it
-with output visible.
+If the cell fails, the error shows git's (redacted) message; check the token's scope and expiry.
 
 **Setup, then stages:**
 

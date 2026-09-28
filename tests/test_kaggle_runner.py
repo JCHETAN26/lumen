@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
-import io
 import json
 import tarfile
 import zipfile
@@ -11,80 +9,10 @@ from argparse import Namespace
 from pathlib import Path
 
 import pytest
-from PIL import Image
+from conftest import fake_records as records
+from conftest import jpeg, run_stages
 
-from lumen.pins import FilePin, Pins
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("run_stages", REPO_ROOT / "kaggle" / "run_stages.py")
-run_stages = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(run_stages)
-
-
-def jpeg() -> bytes:
-    buf = io.BytesIO()
-    Image.new("RGB", (4, 4), (1, 2, 3)).save(buf, "JPEG")
-    return buf.getvalue()
-
-
-def records(split: str, n: int) -> list[dict]:
-    out = []
-    for i in range(n):
-        unans = i % 4 == 0
-        out.append(
-            {
-                "image": f"VizWiz_{split}_{i:08d}.jpg",
-                "question": "What is this?",
-                "answers": [
-                    {"answer": "unanswerable" if unans else "dog", "answer_confidence": "yes"}
-                ]
-                * 10,
-                "answer_type": "unanswerable" if unans else ["other", "yes/no", "number"][i % 3],
-                "answerable": 0 if unans else 1,
-            }
-        )
-    return out
-
-
-@pytest.fixture
-def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    data = tmp_path / "data"
-    data.mkdir()
-    ann = {"train": records("train", 40), "val": records("val", 24)}
-    with zipfile.ZipFile(data / "Annotations.zip", "w") as z:
-        for split, recs in ann.items():
-            z.writestr(f"Annotations/{split}.json", json.dumps(recs))
-    for split, recs in ann.items():
-        with zipfile.ZipFile(data / f"{split}.zip", "w") as z:
-            for r in recs:
-                z.writestr(f"{split}/{r['image']}", jpeg())
-
-    def pin(name: str, filename: str) -> FilePin:
-        return FilePin(
-            name, f"https://example.invalid/{filename}", (data / filename).stat().st_size, None
-        )
-
-    pins = Pins(
-        files={
-            "annotations": pin("annotations", "Annotations.zip"),
-            "train_images": pin("train_images", "train.zip"),
-            "val_images": pin("val_images", "val.zip"),
-        },
-        models={},
-        adapters={},
-        eval_code_sha256="0" * 64,
-        seed=5,
-        dev_fraction=0.25,
-        mac_sample_size=8,
-        raw={},
-    )
-    monkeypatch.setattr(run_stages, "load_pins", lambda: pins)
-    monkeypatch.setattr(run_stages, "DATA_DIR", data)
-    monkeypatch.setattr(run_stages, "RESULTS", tmp_path / "results")
-    monkeypatch.setattr(run_stages, "DOWNLOAD_DIR", tmp_path / "download")
-    monkeypatch.setattr(run_stages, "SPLITS_DIR", tmp_path / "committed_splits")
-    monkeypatch.setattr(run_stages, "REPO_ROOT", tmp_path)
-    return tmp_path
+from lumen.pins import FilePin
 
 
 def test_data_then_mac_sample(env: Path) -> None:

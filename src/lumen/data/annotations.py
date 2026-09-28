@@ -64,7 +64,9 @@ def _check(record: Any, index: int, split: str, require_answers: bool) -> Record
     if record.get("answer_type") not in ANSWER_TYPES:
         raise AnnotationError(f"{where}: bad answer_type {record.get('answer_type')!r}")
     if record.get("answerable") not in (0, 1):
-        raise AnnotationError(f"{where}: answerable must be 0 or 1, got {record.get('answerable')!r}")
+        raise AnnotationError(
+            f"{where}: answerable must be 0 or 1, got {record.get('answerable')!r}"
+        )
     out["answers"] = [
         {"answer": a["answer"], "answer_confidence": a["answer_confidence"]} for a in answers
     ]
@@ -74,7 +76,10 @@ def _check(record: Any, index: int, split: str, require_answers: bool) -> Record
 
 
 def parse_annotations(
-    records: Iterable[Any], split: str, *, require_answers: bool = True,
+    records: Iterable[Any],
+    split: str,
+    *,
+    require_answers: bool = True,
     final_test_run: FinalTestRun | None = None,
 ) -> list[Record]:
     """Validate raw records and return them with `question_id` and `split` added."""
@@ -87,17 +92,23 @@ def parse_annotations(
         raise AnnotationError(f"{split}: no records")
     dupes = [q for q, n in Counter(r["question_id"] for r in out).items() if n > 1]
     if dupes:
-        raise AnnotationError(f"{split}: {len(dupes)} images have more than one question: {dupes[:3]}")
+        raise AnnotationError(
+            f"{split}: {len(dupes)} images have more than one question: {dupes[:3]}"
+        )
     return out
 
 
 def load_annotations(
-    path: Path, split: str, *, require_answers: bool = True,
+    path: Path,
+    split: str,
+    *,
+    require_answers: bool = True,
     final_test_run: FinalTestRun | None = None,
 ) -> list[Record]:
     with open(path, encoding="utf-8") as f:
-        return parse_annotations(json.load(f), split, require_answers=require_answers,
-                                 final_test_run=final_test_run)
+        return parse_annotations(
+            json.load(f), split, require_answers=require_answers, final_test_run=final_test_run
+        )
 
 
 def summarize(records: list[Record]) -> dict[str, Any]:

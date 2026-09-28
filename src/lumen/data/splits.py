@@ -57,8 +57,9 @@ def make_dev_split(
     """Split official train into (train_fit IDs, dev IDs), stratified on answerability."""
     if not 0 < dev_fraction < 1:
         raise ValueError("dev_fraction must be in (0, 1)")
-    dev = set(stratified_sample(train, round(len(train) * dev_fraction),
-                                lambda r: r["answerable"], seed))
+    dev = set(
+        stratified_sample(train, round(len(train) * dev_fraction), lambda r: r["answerable"], seed)
+    )
     fit = sorted(r["question_id"] for r in train if r["question_id"] not in dev)
     return fit, sorted(dev)
 

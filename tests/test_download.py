@@ -77,3 +77,30 @@ def test_size_mismatch_stops(tmp_path: Path) -> None:
 def test_reuses_existing_file_without_network(tmp_path: Path) -> None:
     (tmp_path / "data.zip").write_bytes(PAYLOAD)
     assert fetch_pinned(pin("https://example.invalid/data.zip"), tmp_path).pinned
+
+
+def test_verified_file_is_not_rehashed_until_it_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import lumen.data.download as dl
+
+    f = tmp_path / "data.zip"
+    f.write_bytes(PAYLOAD)
+    p = pin("https://example.invalid/data.zip")
+    calls = []
+    real = dl.sha256_file
+    monkeypatch.setattr(dl, "sha256_file", lambda path: calls.append(path) or real(path))
+    verify(f, p)
+    verify(f, p)
+    assert len(calls) == 1  # second call trusted the sidecar
+    f.write_bytes(bytes(reversed(PAYLOAD)))  # same size, different content, new mtime
+    with pytest.raises(IntegrityError, match="sha256"):
+        verify(f, p)
+    assert len(calls) == 2
+
+
+def test_unpinned_file_gets_no_sidecar(tmp_path: Path) -> None:
+    f = tmp_path / "data.zip"
+    f.write_bytes(PAYLOAD)
+    verify(f, pin("https://example.invalid/data.zip", sha=None))
+    assert not (tmp_path / "data.zip.verified.json").exists()
