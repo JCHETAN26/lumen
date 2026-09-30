@@ -266,3 +266,63 @@ def test_measured_rate_and_summary_table(ready: Path, capsys) -> None:
 def test_summary_without_results(env: Path, capsys) -> None:
     assert run_stages.cmd_baseline_summary(argparse.Namespace()) == 0
     assert "no baseline results" in capsys.readouterr().out
+
+
+# ------------------------------------------------ dev_select subset and automatic prefetch A/B
+
+
+def test_data_stage_builds_dev_select_from_dev(env: Path) -> None:
+    assert run_stages.cmd_data(argparse.Namespace()) == 0
+    split = env / "results" / "splits"
+    sel = split.joinpath("dev_select.txt").read_text().split()
+    dev = set(split.joinpath("dev.txt").read_text().split())
+    assert len(sel) == 4 and set(sel) <= dev
+    assert (env / "download" / "splits" / "dev_select.txt").exists()
+
+
+def test_prompt_choice_on_dev_select_feeds_val(ready: Path) -> None:
+    assert run_stages.cmd_baseline(args(split="dev_select")) == 0
+    for p in ("plain", "abstain"):
+        assert result(ready, "smolvlm2-500m", f"dev_select-{p}.json")["metrics"]["n"] == 4
+    assert (ready / "download" / "splits" / "dev_select.txt").exists()
+    assert run_stages.cmd_baseline(args(split="val", prompt="dev-selected")) == 0
+    [val] = list((ready / "results" / "baseline" / "smolvlm2-500m").glob("val-*.json"))
+    sel = json.loads(val.read_text())["prompt_selection"]
+    assert sel["split"] == "dev_select" and sel["rule"].startswith("max dev_select accuracy")
+    assert all("dev_select-" in v["file"] for v in sel["dev"].values())
+
+
+def test_committed_dev_select_must_match(ready: Path) -> None:
+    (ready / "committed_splits" / "dev_select.txt").write_text("VizWiz_train_00000001\n")
+    with pytest.raises(SystemExit, match="dev_select"):
+        run_stages.cmd_baseline(args(split="dev_select", prompt="plain"))
+
+
+def test_prefetch_auto_measures_both_and_answers_everything_once(ready: Path, monkeypatch) -> None:
+    monkeypatch.setattr(run_stages, "AB_BATCHES", 1)  # arms of 2 questions: fits the fake dev
+    assert run_stages.cmd_baseline(args(prompt="plain", batch_size=2, prefetch_workers="auto")) == 0
+    r = result(ready, "smolvlm2-500m", "dev-plain.json")
+    ab = r["prefetch_ab"]
+    assert ab["questions_per_arm"] == 2 and ab["chosen"] in (0, run_stages.PREFETCH_ON)
+    assert r["prefetch_workers"] == ab["chosen"]
+    assert r["gpu_hours"]["calibration"]["source"] == "prefetch A/B, chosen arm"
+    assert r["run"]["new"] == 10 and r["run"]["resumed"] == 0 and r["metrics"]["n"] == 10
+    lines = (
+        (ready / "predictions" / "baseline" / "smolvlm2-500m" / "dev-plain.predictions.jsonl")
+        .read_text()
+        .splitlines()
+    )
+    qids = [json.loads(line)["question_id"] for line in lines[1:]]
+    assert len(qids) == len(set(qids)) == 10
+
+
+def test_prefetch_auto_with_too_few_questions_uses_default(ready: Path) -> None:
+    assert run_stages.cmd_baseline(args(prompt="plain", prefetch_workers="auto")) == 0
+    r = result(ready, "smolvlm2-500m", "dev-plain.json")
+    assert r["prefetch_ab"] is None and r["prefetch_workers"] == run_stages.PREFETCH_ON
+
+
+def test_workers_arg() -> None:
+    assert run_stages._workers_arg("auto") == "auto" and run_stages._workers_arg("0") == 0
+    with pytest.raises(argparse.ArgumentTypeError):
+        run_stages._workers_arg("-1")

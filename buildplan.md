@@ -82,9 +82,15 @@ the data summary (counts, answerable rate, unmatchable-ground-truth count) has b
 
 ## Stage 2: Zero-shot baseline on Kaggle (code done and tested; GPU runs not started)
 
-Built ahead and tested end to end (fake backend in CI; tiny stand-ins with the real processors
-locally): `lumen.zeroshot` + `run_stages.py baseline`. Prior GPU hours: dev ≈ 5.2, val ≈ 4.9,
-total ≈ 10.2 (`--dry-run`). MLX on the Mac is confirmed early (`results/mac/mlx_smoke_*`).
+Built and tested end to end; quick checks passed on the T4. Plan (approved 2026-09-30, 12 GPU h
+left this week):
+- **This week:** SmolVLM2-500M, then LFM2.5-VL-450M and SmolVLM2-256M: prompt choice on
+  `dev_select` (fixed stratified 512-question dev subset) + val with the chosen prompt, ≈ 4.3 GPU h.
+  Then Stage 3 prep: an image-resolution probe (resolution chosen on dev data only) and a LoRA
+  training speed test, ≈ 1.5 GPU h (rough), plus SmolVLM2-500M zero-shot on val at the chosen
+  resolution for a fair fine-tune comparison, ≈ 0.5-0.8 GPU h.
+- **Next week:** SmolVLM2-2.2B (prompt choice + val ≈ 4.9 GPU h) and the first Stage 3 training run.
+- Measured on the T4: SmolVLM2-500M 0.666 s/question with prefetching (0.798 without).
 
 
 - Add the GPU dependency group (torch, transformers, accelerate), pinned and verified on the T4.

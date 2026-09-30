@@ -87,27 +87,31 @@ If the cell fails, the error shows git's (redacted) message; check the token's s
 
 ```bash
 B="uv run python kaggle/run_stages.py baseline"
-$B --model all --split dev --prompt both --dry-run --gpu-hours-left H     # plan, loads nothing
-$B --model smolvlm2-500m lfm2.5-vl-450m --split dev --prompt abstain --stand-in --limit 16
-$B --model smolvlm2-500m --split dev --prompt abstain --limit 32 --gpu-hours-left H  # fp16 check
-$B --model all --split dev --prompt both --gpu-hours-left H
-$B --model all --split val --prompt dev-selected --gpu-hours-left H
+$B --model smolvlm2-500m --split dev_select --prompt both --dry-run --gpu-hours-left H  # plan
+$B --model smolvlm2-500m --split dev_select --prompt both --gpu-hours-left H   # prompt choice
+$B --model smolvlm2-500m --split val --prompt dev-selected --gpu-hours-left H  # val
+uv run python kaggle/run_stages.py baseline_summary
 ```
 
-- **Prior GPU hours** (`lumen.zeroshot.estimates`, conservative; overhead counted per run):
+- **Prompt choice on `dev_select`**, a fixed stratified 512-question subset of dev (approved
+  2026-09-30; built deterministically on Kaggle from the committed dev IDs and pinned seed,
+  written to the download folder's `splits/`, then committed and enforced like the other splits).
+- **Prefetching on** (2 workers, the default): measured 0.666 s/question vs 0.798 off.
+  `--prefetch-workers 0` turns it off; `auto` re-measures both on the first batches.
+- **Prior GPU hours** (`lumen.zeroshot.estimates`, 1.3x safety; SmolVLM2-500M measured, the
+  others scaled x1.48 until their own calibration batches measure them):
 
-  | Model | dev plain | dev abstain | val (dev-selected) | total |
+  | Model | s/question | prompt choice (512 x 2) | val (4,319) | total |
   |---|---|---|---|---|
-  | SmolVLM2-256M | 0.37 | 0.37 | 0.68 | 1.42 |
-  | SmolVLM2-500M | 0.44 | 0.44 | 0.81 | 1.69 |
-  | LFM2.5-VL-450M | 0.44 | 0.44 | 0.81 | 1.69 |
-  | SmolVLM2-2.2B | 1.37 | 1.37 | 2.63 | 5.37 |
-  | **all** | | | | **≈10.2** |
+  | SmolVLM2-500M | 0.67 (measured) | 0.36 | 1.15 | 1.51 |
+  | LFM2.5-VL-450M | 0.67 | 0.36 | 1.15 | 1.51 |
+  | SmolVLM2-256M | 0.56 | 0.29 | 0.96 | 1.25 |
+  | SmolVLM2-2.2B (next week) | 2.29 | 1.06 | 3.79 | 4.85 |
 
   Each run re-estimates from a 32-question calibration batch and stops cleanly if the measured rate
   no longer fits; answered questions are kept and a rerun resumes.
-- **Val uses the dev-chosen prompt only** (`--prompt dev-selected`: best dev accuracy, ties by dev
-  AP). Explicit prompts on val are refused.
+- **Val uses the dev-chosen prompt only** (`--prompt dev-selected`: best `dev_select` accuracy,
+  ties by AP). Explicit prompts on val are refused.
 - **fp16 on the T4:** non-finite logits stop the run and write a `failed_non_finite` result; nothing
   is scored silently.
 - **Outputs:** `baseline/<model>/<split>-<prompt>.json`: aggregate metrics with bootstrap CIs,

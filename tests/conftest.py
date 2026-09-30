@@ -92,6 +92,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         seed=5,
         dev_fraction=0.25,
         mac_sample_size=8,
+        dev_select_size=4,
         raw={},
     )
     monkeypatch.setattr(run_stages, "load_pins", lambda: pins)

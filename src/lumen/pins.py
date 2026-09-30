@@ -52,6 +52,7 @@ class Pins:
     seed: int
     dev_fraction: float
     mac_sample_size: int
+    dev_select_size: int
     raw: dict[str, Any]
 
 
@@ -81,5 +82,6 @@ def load_pins(path: Path = PINS_PATH) -> Pins:
         seed=int(splits["seed"]),
         dev_fraction=float(splits["dev_fraction"]),
         mac_sample_size=int(splits["mac_sample_size"]),
+        dev_select_size=int(splits["dev_select_size"]),
         raw=raw,
     )

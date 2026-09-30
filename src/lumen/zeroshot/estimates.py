@@ -33,18 +33,19 @@ class ModelCost:
     batch_size: int  # default batch that fits a 15 GB T4 in fp16 with room to spare
 
 
-# Measured 2026-09-29 on the Kaggle T4 (quick check 2, SmolVLM2-500M, fp16, batch 8, fresh dev
-# questions): 0.67-0.80 s/question across the prefetch on/off A/B, vs. the 0.45 derived above.
-# SmolVLM2-500M is set to the slower 0.80; the other three are the derived values scaled by the
-# same factor (0.80 / 0.45 = 1.78) until their own calibration batches measure them.
-# Superseded values: 256m 0.38, 500m 0.45, lfm 0.45, 2.2b 1.55.
-_MEASURED_SCALE = 0.80 / 0.45
+# Measured on the Kaggle T4 (SmolVLM2-500M, fp16, batch 8, fresh dev questions, 2026-09-30):
+# 0.666 s/question with prefetching on (2 workers, the default) vs 0.798 with it off, on different
+# 64-96-question samples. The derived table above said 0.45. SmolVLM2-500M uses the measured
+# prefetch-on rate; the other three are their derived values scaled by the same factor
+# (0.666 / 0.45 = 1.48) until their own calibration batches measure them.
+# Superseded: derived (256m 0.38, 500m 0.45, lfm 0.45, 2.2b 1.55); prefetch-off-based x1.78.
+_MEASURED_SCALE = 0.666 / 0.45
 
 MODEL_COSTS: dict[str, ModelCost] = {
-    "smolvlm2-256m": ModelCost(round(0.38 * _MEASURED_SCALE, 2), 240, 8),  # 0.68
-    "smolvlm2-500m": ModelCost(0.80, 300, 8),  # measured
-    "lfm2.5-vl-450m": ModelCost(round(0.45 * _MEASURED_SCALE, 2), 300, 8),  # 0.80
-    "smolvlm2-2.2b": ModelCost(round(1.55 * _MEASURED_SCALE, 2), 600, 4),  # 2.76
+    "smolvlm2-256m": ModelCost(round(0.38 * _MEASURED_SCALE, 2), 240, 8),  # 0.56
+    "smolvlm2-500m": ModelCost(0.67, 300, 8),  # measured, prefetch on
+    "lfm2.5-vl-450m": ModelCost(round(0.45 * _MEASURED_SCALE, 2), 300, 8),  # 0.67
+    "smolvlm2-2.2b": ModelCost(round(1.55 * _MEASURED_SCALE, 2), 600, 4),  # 2.29
 }
 
 

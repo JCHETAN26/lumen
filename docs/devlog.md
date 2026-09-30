@@ -2,6 +2,30 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-09-30: Plan for 12 GPU h: prompt choice on dev_select; prefetch on
+
+**Decisions (approved).** (1) Zero-shot prompts are chosen on `dev_select`, a fixed stratified
+(answerable x answer type) 512-question subset of dev, instead of all 2,052 dev questions: still
+dev-only, a paired comparison on the same questions, saving ~5 GPU h. Stratifying needs labels,
+and annotations stay on Kaggle, so the runner builds the subset there deterministically (committed
+dev IDs + pinned seed), writes it to the download folder, and requires any committed copy to match
+exactly; it's committed after the first Kaggle run. (2) SmolVLM2-2.2B moves to next week.
+(3) This week also builds the image-resolution probe and the Stage 3 training speed test;
+resolution is chosen on dev data only, and SmolVLM2-500M zero-shot is re-run on val at the chosen
+resolution so the fine-tune comparison is like for like.
+
+**Prefetching measured on the T4:** 0.666 s/question with 2 workers vs 0.798 without (different
+64-96-question samples, so approximate), about 17% faster. Default is now 2 workers; the
+estimates use the prefetch-on rate (SmolVLM2-500M 0.67; others scaled x1.48: 256M 0.56,
+LFM 0.67, 2.2B 2.29). `--prefetch-workers auto` exists (warm-up batch, then 4 batches on and 4
+off, keep the faster) but isn't the default.
+
+**This week (≈ 12 GPU h):** SmolVLM2-500M, LFM2.5-VL-450M, SmolVLM2-256M prompt choice + val
+≈ 4.3 h; Stage 3 prep ≈ 1.5 h (rough); SmolVLM2-500M val at the chosen resolution ≈ 0.5-0.8 h.
+That leaves ≈ 5 h of margin. The prefetch saving (≈ 0.7 h) goes to margin rather than moving
+SmolVLM2-2.2B's val run (3.8 h) into this week, which would leave too little for estimate error
+and the runner's 1 h reserve.
+
 ## 2026-09-30: Measured speed, updated GPU-hour estimates, warnings resolved
 
 **Quick check 2 on Kaggle** (SmolVLM2-500M zero-shot, dev, abstain prompt, fp16): accuracy ~30%,

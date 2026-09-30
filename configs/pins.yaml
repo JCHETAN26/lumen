@@ -87,3 +87,5 @@ splits:
   dev_fraction: 0.10       # carved from official train, stratified on answerable (VizWiz has one
                            # question per image; the loader asserts it, so no image is in both)
   mac_sample_size: 300     # val questions for on-device tests, stratified on answerable x answer_type
+  dev_select_size: 512     # fixed subset of dev for zero-shot prompt choice (approved 2026-09-30),
+                           # stratified on answerable x answer_type; built on Kaggle, then committed

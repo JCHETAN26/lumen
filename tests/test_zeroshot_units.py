@@ -246,3 +246,12 @@ def test_negative_workers_rejected(many) -> None:
     recs, images, tmp = many
     with pytest.raises(ValueError):
         _run(recs, images, tmp / "p.jsonl", -1)
+
+
+def test_limit_new_answers_a_fixed_number_then_resumes(many) -> None:
+    recs, images, tmp = many
+    _, s1 = _run(recs, images, tmp / "p.jsonl", 0, limit_new=5)
+    _, s2 = _run(recs, images, tmp / "p.jsonl", 2, limit_new=7)
+    preds, s3 = _run(recs, images, tmp / "p.jsonl", 0)
+    assert (s1.new, s2.new, s2.resumed, s3.new) == (5, 7, 5, len(recs) - 12)
+    assert list(preds) == [r["question_id"] for r in recs]

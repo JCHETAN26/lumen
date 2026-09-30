@@ -92,6 +92,7 @@ def run_predictions(
     batch_size: int,
     on_batch: Callable[[int, float], None] | None = None,
     prefetch_workers: int = 0,
+    limit_new: int | None = None,
 ) -> tuple[dict[str, dict], RunStats]:
     """Answer every record not already in `out_path`. `on_batch(done, seconds)` after each batch.
 
@@ -101,6 +102,9 @@ def run_predictions(
     With `prefetch_workers > 0`, worker threads load and preprocess (`backend.prepare`) up to that
     many batches ahead while the current batch runs on the GPU. Results are consumed and written
     strictly in order, so the output is identical to `prefetch_workers=0`.
+
+    `limit_new` answers at most that many new questions (in order) and stops: used to time short
+    segments of a run, e.g. the prefetch A/B, against the same predictions file.
     """
     if prefetch_workers < 0:
         raise ValueError("prefetch_workers must be >= 0")
@@ -117,6 +121,8 @@ def run_predictions(
     if stale:
         raise HeaderMismatch(f"{out_path} has {len(stale)} questions outside this split")
     todo = [r for r in records if r["question_id"] not in preds]
+    if limit_new is not None:
+        todo = todo[:limit_new]
     resumed = len(preds)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     t0, done, batches = time.monotonic(), 0, 0

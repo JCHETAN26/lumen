@@ -4,6 +4,8 @@
   threshold) happens on dev. Official val is the reporting split and official test is used once,
   at the end; neither is ever used to choose anything.
 - mac_sample: a small stratified slice of *val* for on-device tests on the Mac.
+- dev_select: a fixed stratified subset of *dev* on which zero-shot prompts are chosen (cheaper
+  than all of dev, still never val). Built with the same ranking, from the committed dev IDs.
 
 Selection orders questions by sha256(seed:question_id), not by a stateful RNG, so the result is
 independent of input order and of library versions. The ID lists are committed under
@@ -67,6 +69,13 @@ def make_dev_split(
 def make_mac_sample(val: Sequence[Record], size: int, seed: int) -> list[str]:
     """Stratified on answerable x answer_type, so the rare 'number' type is still represented."""
     return stratified_sample(val, size, lambda r: (r["answerable"], r["answer_type"]), seed)
+
+
+def make_dev_select(dev: Sequence[Record], size: int, seed: int) -> list[str]:
+    """Stratified on answerable x answer_type, like the Mac sample, but drawn from dev."""
+    if any(not r["question_id"].startswith("VizWiz_train_") for r in dev):
+        raise ValueError("dev_select must be drawn from dev (official train) questions only")
+    return stratified_sample(dev, size, lambda r: (r["answerable"], r["answer_type"]), seed)
 
 
 def write_ids(path: Path, ids: Sequence[str]) -> None:

@@ -46,7 +46,13 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from lumen.data.annotations import Record, parse_annotations, summarize  # noqa: E402
 from lumen.data.download import ensure_free_space, fetch_pinned  # noqa: E402
 from lumen.data.images import ZipImages  # noqa: E402
-from lumen.data.splits import make_dev_split, make_mac_sample, read_ids, write_ids  # noqa: E402
+from lumen.data.splits import (  # noqa: E402
+    make_dev_select,
+    make_dev_split,
+    make_mac_sample,
+    read_ids,
+    write_ids,
+)
 from lumen.pins import SPLITS_DIR, load_pins  # noqa: E402
 from lumen.runmeta import hardware_info, run_metadata, write_result  # noqa: E402
 from lumen.zeroshot.prompts import PROMPTS  # noqa: E402
@@ -76,6 +82,7 @@ SPLIT_FILES = {
     "train_fit": "train_fit.txt",
     "dev": "dev.txt",
     "mac_sample": "mac_sample_val.txt",
+    "dev_select": "dev_select.txt",
 }
 
 
@@ -178,7 +185,11 @@ def cmd_data(args: argparse.Namespace) -> int:
 
     fit, dev = make_dev_split(train, pins.dev_fraction, pins.seed)
     mac = make_mac_sample(val, pins.mac_sample_size, pins.seed)
-    generated = {"train_fit": fit, "dev": dev, "mac_sample": mac}
+    dev_ids = set(dev)
+    dev_select = make_dev_select(
+        [r for r in train if r["question_id"] in dev_ids], pins.dev_select_size, pins.seed
+    )
+    generated = {"train_fit": fit, "dev": dev, "mac_sample": mac, "dev_select": dev_select}
     split_check = {}
     for key, ids in generated.items():
         out = RESULTS / "splits" / SPLIT_FILES[key]
@@ -300,14 +311,31 @@ def cmd_mac_sample(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------------------- baseline
 
 BASELINE_DIR = "baseline"
+PREFETCH_ON = 2  # workers used when prefetching is on (`auto` compares this against 0)
+AB_BATCHES = 4  # batches per arm of the automatic prefetch on/off comparison
 EXIT_BUDGET, EXIT_NON_FINITE, EXIT_STORAGE = 3, 4, 5
 SESSION_START = time.monotonic()
 
 
+def _dev_select_ids(dev_records: list[Record], pins) -> list[str]:
+    """The fixed prompt-choice subset of dev. Regenerated deterministically from the committed dev
+    IDs + pinned seed every time; if a committed copy exists it must match exactly. The generated
+    list is written to the download folder so it can be committed like the other splits."""
+    ids = make_dev_select(dev_records, pins.dev_select_size, pins.seed)
+    out = RESULTS / "splits" / SPLIT_FILES["dev_select"]
+    write_ids(out, ids)
+    collect(out, "splits")
+    committed = SPLITS_DIR / SPLIT_FILES["dev_select"]
+    if committed.exists() and read_ids(committed) != ids:
+        raise SystemExit(f"dev_select: regenerated subset differs from {committed}; pins changed?")
+    return ids
+
+
 def _load_split(split: str, pins, *, limit: int | None) -> tuple[list[Record], Path]:
-    """Records and image zip for dev (committed IDs, from official train) or val (all)."""
+    """Records and image zip for dev / dev_select (committed dev IDs, from official train) or
+    val (all)."""
     ann = fetch_pinned(pins.files["annotations"], DATA_DIR).path
-    if split == "dev":
+    if split in ("dev", "dev_select"):
         ids = set(read_ids(SPLITS_DIR / SPLIT_FILES["dev"]))
         records = [
             r
@@ -316,12 +344,17 @@ def _load_split(split: str, pins, *, limit: int | None) -> tuple[list[Record], P
         ]
         if len(records) != len(ids):
             raise SystemExit(f"dev: {len(ids) - len(records)} committed IDs not in train.json")
+        if split == "dev_select":
+            keep = set(_dev_select_ids(records, pins))
+            records = [r for r in records if r["question_id"] in keep]
         zip_pin = pins.files["train_images"]
     elif split == "val":
         records = parse_annotations(_annotation_json(ann, "val"), "val")
         zip_pin = pins.files["val_images"]
     else:
-        raise SystemExit(f"baseline runs on dev or val, not {split!r} (test is sealed)")
+        raise SystemExit(
+            f"baseline runs on dev, dev_select, or val, not {split!r} (test is sealed)"
+        )
     records.sort(key=lambda r: r["question_id"])
     if limit is not None:
         records = records[:limit]
@@ -358,17 +391,27 @@ def make_hub_api():
 
 
 def _dev_selected_prompt(model_key: str) -> tuple[str, dict]:
-    """The prompt with the best dev accuracy (ties: higher dev AP, then name). Dev only."""
+    """The prompt with the best accuracy on dev_select, the fixed 512-question dev subset (or on
+    full dev if that's what was run); ties: higher AP, then name. Never val."""
+    run_dir = _run_dir(model_key, "")
+    sel_split = next(
+        (
+            sp
+            for sp in ("dev_select", "dev")
+            if all(list(run_dir.glob(f"{sp}-{k}*.json")) for k in PROMPTS)
+        ),
+        None,
+    )
+    if sel_split is None:
+        raise SystemExit(
+            f"{model_key}: no dev result for both prompts; "
+            "run --split dev_select --prompt both first"
+        )
     found = {}
     for key in PROMPTS:
-        files = sorted(_run_dir(model_key, "").glob(f"dev-{key}.json")) + sorted(
-            _run_dir(model_key, "").glob(f"dev-{key}.[0-9]*.json")
+        files = sorted(run_dir.glob(f"{sel_split}-{key}.json")) + sorted(
+            run_dir.glob(f"{sel_split}-{key}.[0-9]*.json")
         )
-        if not files:
-            raise SystemExit(
-                f"{model_key}: no dev result for prompt {key!r}; "
-                "run --split dev --prompt both first"
-            )
         doc = json.loads(files[-1].read_text())
         found[key] = {
             "file": str(files[-1].relative_to(REPO_ROOT)),
@@ -377,7 +420,8 @@ def _dev_selected_prompt(model_key: str) -> tuple[str, dict]:
         }
     best = max(sorted(found), key=lambda k: (found[k]["accuracy"], found[k]["average_precision"]))
     return best, {
-        "rule": "max dev accuracy; ties by dev AP, then name",
+        "rule": f"max {sel_split} accuracy; ties by AP, then name",
+        "split": sel_split,
         "dev": found,
         "chosen": best,
     }
@@ -467,19 +511,67 @@ def _baseline_one(
         if not args.stand_in and left is not None:
             check_budget(rest, left - (time.monotonic() - SESSION_START) / 3600 + used)
 
+    images = ZipImages(zip_path)
+    common = dict(prompt_key=prompt_key, split=split, out_path=pred_path, batch_size=batch_size)
+    workers = getattr(args, "prefetch_workers", 0)
+    prefetch_ab: dict | None = None
+    seg_new, seg_seconds = 0, 0.0
+
     t0 = time.monotonic()
     status, error = "completed", None
     try:
+        if workers == "auto":
+            arm = batch_size * AB_BATCHES
+            if remaining >= batch_size + 2 * arm + batch_size:
+                # Warm-up batch (CUDA init, first-call costs) is answered but not timed. Then the
+                # same number of real questions with prefetching on and off; keep the faster.
+                _, warm = run_predictions(
+                    backend, records, images, limit_new=batch_size, prefetch_workers=0, **common
+                )
+                _, on = run_predictions(
+                    backend, records, images, limit_new=arm, prefetch_workers=PREFETCH_ON, **common
+                )
+                _, off = run_predictions(
+                    backend, records, images, limit_new=arm, prefetch_workers=0, **common
+                )
+                r_on, r_off = on.seconds / on.new, off.seconds / off.new
+                workers = PREFETCH_ON if r_on < r_off else 0
+                seg_new = warm.new + on.new + off.new
+                seg_seconds = warm.seconds + on.seconds + off.seconds
+                prefetch_ab = {
+                    "questions_per_arm": arm,
+                    "on_workers": PREFETCH_ON,
+                    "on_sec_per_question": round(r_on, 4),
+                    "off_sec_per_question": round(r_off, 4),
+                    "chosen": workers,
+                }
+                print(
+                    f"   prefetch A/B: on {r_on:.3f} vs off {r_off:.3f} s/question "
+                    f"-> prefetch_workers={workers}"
+                )
+                chosen = on if workers else off
+                cal = calibrated_estimate(prior, chosen.new, chosen.seconds)
+                rest = calibrated_estimate(
+                    estimate_run(model_key, split, prompt_key, remaining - seg_new),
+                    chosen.new,
+                    chosen.seconds,
+                )
+                calibration.update(
+                    estimate=cal.as_dict(),
+                    measured_items=chosen.new,
+                    measured_seconds=round(chosen.seconds, 2),
+                    source="prefetch A/B, chosen arm",
+                )
+                print(
+                    f"   calibrated: {min(r_on, r_off):.3f} s/question -> "
+                    f"{cal.hours:.2f} GPU h total"
+                )
+                if not args.stand_in and left is not None:
+                    check_budget(rest, left - (time.monotonic() - SESSION_START) / 3600 + used)
+            else:
+                workers = PREFETCH_ON  # too few questions to measure; use the default
         preds, stats = run_predictions(
-            backend,
-            records,
-            ZipImages(zip_path),
-            prompt_key=prompt_key,
-            split=split,
-            out_path=pred_path,
-            batch_size=batch_size,
-            on_batch=on_batch,
-            prefetch_workers=getattr(args, "prefetch_workers", 0),
+            backend, records, images, on_batch=on_batch, prefetch_workers=workers, **common
         )
     except BudgetExceeded as e:
         print(f"STOPPED (budget): {e}\n   answered so far is saved in {pred_path}; rerun resumes.")
@@ -500,7 +592,8 @@ def _baseline_one(
         "prompt": header,
         "prompt_selection": prompt_selection,
         "batch_size": batch_size,
-        "prefetch_workers": getattr(args, "prefetch_workers", 0),
+        "prefetch_workers": workers,
+        "prefetch_ab": prefetch_ab,
         "gpu_hours": {
             "prior_estimate": prior.as_dict(),
             "calibration": calibration or None,
@@ -509,10 +602,11 @@ def _baseline_one(
         "run": None
         if stats is None
         else {
-            "new": stats.new,
-            "resumed": stats.resumed,
-            "seconds": round(stats.seconds, 1),
-            # Measured GPU rate (batch-amortized, excludes model load): replaces the prior.
+            "new": stats.new + seg_new,
+            "resumed": stats.resumed - seg_new,
+            "seconds": round(stats.seconds + seg_seconds, 1),
+            # Steady-state GPU rate with the chosen prefetch setting (excludes model load and
+            # the A/B segments): replaces the prior.
             "sec_per_question": round(stats.seconds / stats.new, 4) if stats.new else None,
         },
     }
@@ -583,7 +677,10 @@ def _baseline_plan(models: list[str], split: str, prompts: list[str], args) -> l
     from lumen.zeroshot.harness import read_predictions
 
     pins = load_pins()
-    n_split = {"dev": len(read_ids(SPLITS_DIR / SPLIT_FILES["dev"]))}
+    n_split = {
+        "dev": len(read_ids(SPLITS_DIR / SPLIT_FILES["dev"])),
+        "dev_select": pins.dev_select_size,
+    }
     if split == "val":
         n_split["val"] = json.loads((RESULTS / "data" / "vizwiz_data.json").read_text())["summary"][
             "val"
@@ -609,7 +706,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
         raise SystemExit(f"unknown model(s) {sorted(unknown)}; pinned: {sorted(pins.models)}")
     if args.split == "val" and args.prompt != "dev-selected":
         raise SystemExit("val uses the prompt chosen on dev: pass --prompt dev-selected")
-    if args.split == "dev" and args.prompt == "dev-selected":
+    if args.split in ("dev", "dev_select") and args.prompt == "dev-selected":
         raise SystemExit("--prompt dev-selected is for val")
 
     selections: dict[str, dict] = {}
@@ -740,6 +837,15 @@ def cmd_storage_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _workers_arg(value: str) -> int | str:
+    if value == "auto":
+        return value
+    n = int(value)
+    if n < 0:
+        raise argparse.ArgumentTypeError("must be >= 0 or 'auto'")
+    return n
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -756,7 +862,7 @@ def main() -> int:
     ).set_defaults(fn=cmd_storage_check)
     b = sub.add_parser("baseline", help="zero-shot baselines (Stage 2)")
     b.add_argument("--model", nargs="+", default=["all"], help="pinned model keys, or 'all'")
-    b.add_argument("--split", choices=["dev", "val"], required=True)
+    b.add_argument("--split", choices=["dev", "dev_select", "val"], required=True)
     b.add_argument("--prompt", choices=[*PROMPTS, "both", "dev-selected"], required=True)
     b.add_argument(
         "--gpu-hours-left",
@@ -768,9 +874,10 @@ def main() -> int:
     b.add_argument("--calibration-items", type=int, default=32)
     b.add_argument(
         "--prefetch-workers",
-        type=int,
-        default=2,
-        help="threads preparing the next batches while the GPU runs (0 = off)",
+        type=_workers_arg,
+        default=PREFETCH_ON,  # measured faster on the T4 (0.666 vs 0.798 s/question, 2026-09-30)
+        help="threads preparing the next batches while the GPU runs; 0 = off; 'auto' times "
+        "prefetching on vs off on the first real batches and keeps the faster",
     )
     b.add_argument("--limit", type=int, default=None, help="smoke run on the first N questions")
     b.add_argument(
