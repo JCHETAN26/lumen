@@ -2,6 +2,30 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-09-30: Measured speed, updated GPU-hour estimates, warnings resolved
+
+**Quick check 2 on Kaggle** (SmolVLM2-500M zero-shot, dev, abstain prompt, fp16): accuracy ~30%,
+AP 44-52, said-unanswerable ~10% vs ~27% truly unanswerable, no NaN. Measured **0.67-0.80
+s/question** across the prefetch on/off A/B, vs. the 0.45 prior. Which rate belonged to which
+setting wasn't reported, so the estimates use the slower 0.80.
+
+**Estimates updated** (`lumen.zeroshot.estimates`): SmolVLM2-500M 0.80 measured; the other three
+scaled by the same factor (x1.78): 256M 0.68, LFM2.5-VL-450M 0.80, 2.2B 2.76 s/question. The
+proportional scaling assumes their mix of CPU preprocessing and GPU work is similar to 500M's.
+That's least true for 2.2B (more GPU-bound) and LFM (different tiling, reference conv kernels),
+so their first calibration batches may move them either way. With 1.3x safety: dev (both prompts,
+full dev) 8.0 h + val 8.4 h ≈ 16.4 h for all four models. That doesn't fit the 12 h left this week.
+
+**pad_token_id warning: harmless.** The out-of-range 128002 is only in SmolVLM's *top-level*
+config (a stale value). Everything that handles padding uses token id 2 (`<|im_end|>`, valid):
+text_config.pad_token_id, the published generation config, the tokenizer, and our `generate`
+call, which passes the tokenizer's pad id explicitly (since 299c367). Left padding + attention
+masks make padding content irrelevant anyway; the batching-invariance test checks exactly that.
+
+**processor_kwargs warning: gone.** Filtered since 9ab88f0; a real stand-in run through
+HFBackend logs zero of them. Kaggle ran code at or after 5dbdfee (its S2.5 cell uses
+`--prefetch-workers`, which only exists from 5dbdfee), so it had both fixes.
+
 ## 2026-09-28: Stage 2 quick checks passed; prefetching, and a correction
 
 **Quick checks on the T4.** Storage check: both private HF repos are private and writable, which
