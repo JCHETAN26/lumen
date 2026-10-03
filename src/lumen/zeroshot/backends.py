@@ -183,7 +183,7 @@ class HFBackend:
         self.pin = pin
         self.stand_in = stand_in
         self.image_longest_edge = image_longest_edge
-        self._images_kwargs = _images_kwargs(processor, image_longest_edge)
+        self._images_kwargs = long_edge_kwargs(processor, image_longest_edge)
         self.image_tokens = ImageTokenStats()
         tok = processor.tokenizer
         self._variants = sorted(
@@ -338,7 +338,7 @@ class HFBackend:
         return [BatchOutput(r, p) for r, p in zip(raws, probs, strict=True)]
 
 
-def _images_kwargs(processor: Any, longest_edge: int | None) -> dict[str, Any]:
+def long_edge_kwargs(processor: Any, longest_edge: int | None) -> dict[str, Any]:
     """Processor kwargs that cap the image's long edge, validated against the processor.
 
     SmolVLM resizes the long edge up to a multiple of its 512 px tile, then splits it into tiles
