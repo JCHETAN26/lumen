@@ -1,9 +1,13 @@
-"""Choosing the image resolution for fine-tuning from the dev_select probe (dev data only).
+"""Choosing the image resolution for fine-tuning from the dev probe (all 2,052 dev questions).
 
 Rule, fixed 2026-10-03 before any probe result: take the arm with the best accuracy, then choose
 the lowest-token resolution (smallest long edge) that is not meaningfully worse than it: the lower
 bound of the 95% paired bootstrap CI on its accuracy difference from the best arm is no lower than
 -MARGIN_POINTS. Average precision is reported alongside but does not decide.
+
+The 2-point margin is a product decision made before any result: 1,024 px uses ~2.6x fewer image
+tokens than 2,048 px, cutting training cost and on-device latency, and up to 2 accuracy points is
+an accepted price for that.
 """
 
 from __future__ import annotations
@@ -15,11 +19,11 @@ import numpy as np
 
 from lumen.eval.bootstrap import DEFAULT_RESAMPLES, DEFAULT_SEED, bootstrap_ci
 
-MARGIN_POINTS = 1.0
+MARGIN_POINTS = 2.0
 RULE = (
-    "best = highest dev_select accuracy (ties: fewer image tokens); chosen = the smallest long "
-    f"edge whose 95% paired bootstrap CI on (accuracy - best accuracy) has a lower bound >= "
-    f"-{MARGIN_POINTS:g} point. AP is reported, not decisive. Fixed 2026-10-03, before any probe "
+    "best = highest dev accuracy (all of dev; ties: fewer image tokens); chosen = the smallest "
+    f"long edge whose 95% paired bootstrap CI on (accuracy - best accuracy) has a lower bound >= "
+    f"-{MARGIN_POINTS:g} points. AP is reported, not decisive. Fixed 2026-10-03, before any probe "
     "result existed."
 )
 

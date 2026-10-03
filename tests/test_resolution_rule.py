@@ -15,8 +15,8 @@ def arm(correct: set[int]) -> np.ndarray:
 
 
 BASE = set(range(0, N, 2))  # 50% accuracy
-# 40 right answers lost, 38 gained: 0.2 points worse, with many discordant questions.
-NOISY = (BASE - set(range(0, 80, 2))) | set(range(1, 77, 2))
+# 80 right answers lost, 78 gained: 0.2 points worse, with many discordant questions.
+NOISY = (BASE - set(range(0, 160, 2))) | set(range(1, 157, 2))
 
 
 def test_near_identical_cheaper_arm_is_chosen_even_if_not_best() -> None:
@@ -34,8 +34,8 @@ def test_clearly_worse_cheaper_arm_is_rejected() -> None:
 
 
 def test_slightly_worse_but_noisy_arm_fails_the_margin() -> None:
-    """Only 0.2 points worse, but 78 questions swap right/wrong: the paired CI is too wide to show
-    it within 1 point, so the rule keeps the best arm (the cost of a strict margin at small n)."""
+    """Only 0.2 points worse, but 158 questions swap right/wrong: the paired CI is too wide to show
+    it within the margin, so the rule keeps the best arm."""
     out = choose_long_edge({2048: arm(BASE), 1024: arm(NOISY)})
     assert out["vs_best"][1024]["accuracy_diff"] == pytest.approx(-0.2)
     assert out["vs_best"][1024]["accuracy_diff_ci95"]["low"] < -MARGIN_POINTS

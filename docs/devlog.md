@@ -13,28 +13,42 @@ same grid, so the tile count follows the aspect ratio, not the photo's size. A 7
 same tiles as 1,024, so the probe arms are 2,048 / 1,536 / 1,024 / 512.
 
 **Rule, fixed 2026-10-03 before any probe result** (`lumen.zeroshot.resolution`): the *best* arm is
-the one with the highest `dev_select` accuracy (exact ties: fewer image tokens). The *chosen* arm is
-the lowest-token resolution (smallest long edge) that is not meaningfully worse than the best: the
-lower bound of the 95% paired bootstrap CI on its accuracy difference from the best is at least
-**-1.0 point** (the margin). AP is reported with its own paired CI but does not decide. This
-replaced a first draft ("highest accuracy wins", 2026-10-01) before any probe run existed: an
-accuracy-equivalent cheaper resolution should win, because image tokens dominate on-device latency.
+the one with the highest accuracy on **all 2,052 dev questions** (exact ties: fewer image tokens).
+The *chosen* arm is the lowest-token resolution (smallest long edge) that is not meaningfully worse
+than the best: the lower bound of the 95% paired bootstrap CI on its accuracy difference from the
+best is at least **-2.0 points** (the non-inferiority margin). AP is reported with its own paired CI
+but does not decide.
 
-**What the margin implies at n = 512.** The CI is paired, so its width depends on how many
-questions change score between two resolutions, not on accuracy itself. Roughly, with 0/1 scores a
-lower resolution passes only if its point estimate is close to the best and it changes the outcome
-of at most ~7 of the 512 questions (half-width ≈ 1.96 · 100·√d / n ≤ 1 point at d ≈ 7). VizWiz's
-fractional scores loosen this a little. So the rule will keep the best arm unless a cheaper one
-answers almost identically; that is the intended conservative behavior, recorded here so it isn't
-a surprise. Limitation: zero-shot accuracy is a proxy for how well the *fine-tuned* model uses a
-resolution.
+**Why a 2-point margin (product decision, made before any result).** 1,024 px uses about 2.6x fewer
+image tokens than 2,048 px (320 vs 832 for a portrait photo), which cuts training cost and
+on-device latency, both central to Lumen (an 8 GB fanless MacBook Air). Accepting up to 2 accuracy
+points for that is a stated trade-off, not something read off the data.
+
+**Why all of dev, not dev_select.** The CI is paired, so its width depends on how many questions
+change score between two resolutions (d), roughly half-width ≈ 1.96 · 100·√d / n with 0/1 scores.
+A first version (2026-10-03, never run) used the 512-question `dev_select` with a 1-point margin; a
+cheaper arm could then pass only if it changed at most ~7 of 512 outcomes, so the rule would almost
+always have kept the best arm. With n = 2,052 and a 2-point margin, an arm with the same point
+accuracy passes if up to ~440 questions (~21%) change score, and one 1 point worse if up to ~110
+(~5%) do. VizWiz's fractional scores loosen this a little. Earlier drafts, both before any probe
+result: "highest accuracy wins" (2026-10-01), then the 1-point margin on dev_select.
+
+**Cost.** Four full-dev runs (2,048 / 1,536 / 1,024 / 512 px): prior 0.60 + 0.49 + 0.30 + 0.28 =
+1.68 GPU h (1.3x safety, model load per run), up from 0.51 h on dev_select. The 2,048 px arm is a
+new full-dev run at the default resolution: the existing 2,048 px results cover only dev_select
+(512) and the quick checks' smoke runs. If an earlier full-dev `dev-abstain` predictions file is on
+Kaggle's disk with the same header, the run resumes from it.
+
+Limitation: zero-shot accuracy is a proxy for how well the *fine-tuned* model uses a resolution.
 
 **How:** `baseline --long-edge N` caps the processor's long edge (SmolVLM2-500M/256M only; LFM2.5
 tiles differently and is refused). The cap goes into the predictions header only when set, so the
-default-resolution files already on the Hub stay valid. `resolution_choice` (CPU) re-scores each arm
-from its predictions on the same 512 questions, with paired bootstrap CIs vs 2,048 px; the val run
-at the chosen resolution reads the committed choice (`--long-edge chosen`). Prior cost scales with
-portrait tiles, floored at 0.35x, until the calibration batch measures it.
+default-resolution files already on the Hub stay valid. The probe uses the prompt chosen on
+dev_select (abstain); a full-dev run of one prompt doesn't change prompt choice, which needs both
+prompts on a split. `resolution_choice` (CPU) re-scores each arm from its predictions on the same
+2,052 questions; the val run at the chosen resolution reads the committed choice
+(`--long-edge chosen`). Prior cost scales with portrait tiles, floored at 0.35x, until the
+calibration batch measures it.
 
 ## 2026-09-30: Plan for 12 GPU h: prompt choice on dev_select; prefetch on
 

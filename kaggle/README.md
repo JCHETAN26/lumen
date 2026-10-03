@@ -129,12 +129,13 @@ uv run python kaggle/run_stages.py baseline_summary
 ## Stage 3 prep: image resolution
 
 ```bash
-B="uv run python kaggle/run_stages.py baseline"
+B="uv run python kaggle/run_stages.py baseline --model smolvlm2-500m"
+$B --split dev --prompt abstain --gpu-hours-left H                     # 2,048 px (default)
 for le in 1536 1024 512; do
-  $B --model smolvlm2-500m --split dev_select --prompt abstain --long-edge $le --gpu-hours-left H
+  $B --split dev --prompt abstain --long-edge $le --gpu-hours-left H
 done
 uv run python kaggle/run_stages.py resolution_choice      # CPU; commit its result
-$B --model smolvlm2-500m --split val --prompt dev-selected --long-edge chosen --gpu-hours-left H
+$B --split val --prompt dev-selected --long-edge chosen --gpu-hours-left H
 ```
 
 - **Why:** image tokens are most of SmolVLM2's cost. The processor rounds the long edge up to a
@@ -142,11 +143,15 @@ $B --model smolvlm2-500m --split val --prompt dev-selected --long-edge chosen --
   portrait photo gets 13 / 10 / 5 / 1 tiles at 2,048 (default) / 1,536 / 1,024 / 512 px, i.e. 832
   of ~875 prompt tokens at the default. 768 px gives the same tiles as 1,024, so it isn't offered.
   Smaller photos are upscaled, so the tile count depends on the aspect ratio, not the photo's size.
+- **On all 2,052 dev questions**, not dev_select: the paired CI needs the sample size. Prior cost
+  0.60 + 0.49 + 0.30 + 0.28 = 1.68 GPU h. The 2,048 px arm is a full-dev run at the default
+  resolution (the existing 2,048 px results cover dev_select only).
 - **Rule, fixed 2026-10-03 before any probe result** (`lumen.zeroshot.resolution`): the best arm
-  has the highest `dev_select` accuracy; the chosen arm is the smallest long edge whose 95% paired
-  bootstrap CI on (accuracy − best accuracy) has a lower bound ≥ −1.0 point. AP is reported with
-  its own paired CI, not decisive. `resolution_choice` re-scores every arm from its predictions on
-  the same questions, and also reports each arm's difference from 2,048 px.
+  has the highest dev accuracy; the chosen arm is the smallest long edge whose 95% paired bootstrap
+  CI on (accuracy − best accuracy) has a lower bound ≥ −2.0 points. The margin is a product
+  decision: 1,024 px uses ~2.6x fewer image tokens, cutting training cost and on-device latency.
+  AP is reported with its own paired CI, not decisive. `resolution_choice` re-scores every arm from
+  its predictions on the same questions, and also reports each arm's difference from 2,048 px.
 - **Matched baseline:** `--long-edge chosen` reads the committed `resolution_choice` result; the
   fine-tune is compared against SmolVLM2-500M zero-shot on val at that resolution. If 2,048 px wins,
   the existing val run already is that baseline and the command runs nothing.

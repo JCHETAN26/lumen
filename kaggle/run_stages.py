@@ -864,6 +864,9 @@ def cmd_baseline_summary(args: argparse.Namespace) -> int:
 PROBE_MODEL = "smolvlm2-500m"  # the model Lumen fine-tunes
 LONG_EDGE_MODELS = ("smolvlm2-500m", "smolvlm2-256m")  # same processor: 512 px tiles, 2,048 cap
 PREP_DIR = "stage3_prep"
+# The probe runs on all of dev (2,052 questions), not dev_select: a paired CI with a 2-point margin
+# needs the sample size (approved 2026-10-03). The 2,048 px arm is the default-resolution dev run.
+PROBE_SPLIT = "dev"
 
 
 def _long_edge_arg(value: str) -> int | str:
@@ -879,7 +882,7 @@ def _chosen_long_edge() -> int:
     files = _result_files(RESULTS / PREP_DIR, "resolution_choice")
     if not files:
         raise SystemExit(
-            "no resolution choice yet: run the dev_select probe at every long edge, then the "
+            "no resolution choice yet: run the dev probe at every long edge, then the "
             "resolution_choice stage (and commit its result)"
         )
     return int(json.loads(files[-1].read_text())["chosen"]["long_edge"])
@@ -908,7 +911,7 @@ def download_predictions(pointer: dict) -> Path:
 def _probe_predictions(doc: dict, prompt: str, long_edge: int | None) -> dict[str, dict]:
     """A probe run's predictions: the local file if its sha256 matches the result, else the Hub."""
     pointer = doc["predictions"]
-    local = _pred_path(PROBE_MODEL, "dev_select", prompt, "", long_edge)
+    local = _pred_path(PROBE_MODEL, PROBE_SPLIT, prompt, "", long_edge)
     if local.exists() and hashlib.sha256(local.read_bytes()).hexdigest() == pointer["sha256"]:
         path = local
     elif pointer.get("stored") == "private Hugging Face dataset":
@@ -924,9 +927,10 @@ def _probe_predictions(doc: dict, prompt: str, long_edge: int | None) -> dict[st
 
 
 def cmd_resolution_choice(args: argparse.Namespace) -> int:
-    """Pick the image resolution for fine-tuning from the dev_select probe (dev data only).
+    """Pick the image resolution for fine-tuning from the dev probe (dev data only).
 
-    Each long edge's dev_select run (the dev-chosen prompt) is re-scored from its predictions so
+    Each long edge's dev run (all 2,052 dev questions, with the prompt chosen on dev_select) is
+    re-scored from its predictions so
     every arm is compared on the same questions. The rule (lumen.zeroshot.resolution.RULE, fixed in
     advance) uses paired bootstrap CIs on the accuracy difference from the best arm; differences
     from the default 2,048 px and all AP differences are reported, not decisive.
@@ -945,24 +949,25 @@ def cmd_resolution_choice(args: argparse.Namespace) -> int:
     edges = sorted(PORTRAIT_TILES, reverse=True)
     docs: dict[int, tuple[Path, dict]] = {}
     for le in edges:
-        files = _result_files(run_dir, _run_name("dev_select", prompt, _resolve(le)))
+        files = _result_files(run_dir, _run_name(PROBE_SPLIT, prompt, _resolve(le)))
         if files:
             docs[le] = (files[-1], json.loads(files[-1].read_text()))
     missing = [le for le in edges if le not in docs]
     if missing:
         raise SystemExit(
-            f"no dev_select probe run for long edge {missing}: run `baseline --model {PROBE_MODEL}"
-            f" --split dev_select --prompt {prompt} --long-edge N` for each"
+            f"no {PROBE_SPLIT} probe run for long edge {missing}: run `baseline --model "
+            f"{PROBE_MODEL} --split {PROBE_SPLIT} --prompt {prompt} --long-edge N` for each "
+            f"(2048 = the default-resolution run, without --long-edge)"
         )
     for f, d in docs.values():
         if d["status"] != "completed":
             raise SystemExit(f"{f.name}: status {d['status']}; rerun it to completion first")
 
-    records, _ = _load_split("dev_select", load_pins(), limit=None)
+    records, _ = _load_split(PROBE_SPLIT, load_pins(), limit=None)
     ids = [r["question_id"] for r in records]
     for f, d in docs.values():
         if d["metrics"]["question_ids_sha256"] != question_ids_sha256(ids):
-            raise SystemExit(f"{f.name}: answered a different dev_select than the committed one")
+            raise SystemExit(f"{f.name}: answered a different dev than the committed one")
     y = np.array([r["answerable"] for r in records])
 
     def ap(labels: np.ndarray, scores: np.ndarray) -> float:
@@ -1019,7 +1024,7 @@ def cmd_resolution_choice(args: argparse.Namespace) -> int:
     payload = {
         "stage": "resolution_choice",
         "model": PROBE_MODEL,
-        "split": "dev_select",
+        "split": PROBE_SPLIT,
         "n": len(ids),
         "question_ids_sha256": question_ids_sha256(ids),
         "prompt": prompt,
@@ -1106,7 +1111,7 @@ def main() -> int:
         "storage_check", help="check HF_TOKEN against the private Hub repos"
     ).set_defaults(fn=cmd_storage_check)
     sub.add_parser(
-        "resolution_choice", help="pick the image resolution from the dev_select probe (CPU)"
+        "resolution_choice", help="pick the image resolution from the dev probe (CPU)"
     ).set_defaults(fn=cmd_resolution_choice)
     b = sub.add_parser("baseline", help="zero-shot baselines (Stage 2)")
     b.add_argument("--model", nargs="+", default=["all"], help="pinned model keys, or 'all'")

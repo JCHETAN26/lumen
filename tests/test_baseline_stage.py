@@ -336,33 +336,33 @@ def test_workers_arg() -> None:
 # ------------------------------------------------------- image resolution probe (Stage 3 prep)
 
 
-def probe(edges=(1536, 1024, 512)) -> None:
-    """Prompt choice on dev_select at the default resolution, then the abstain-prompt probe."""
+def probe(edges=(2048, 1536, 1024, 512)) -> None:
+    """Prompt choice on dev_select, then the abstain-prompt probe on all of dev (2048 = default)."""
     assert run_stages.cmd_baseline(args(split="dev_select")) == 0
     for le in edges:
+        long_edge = None if le == 2048 else le
         assert (
-            run_stages.cmd_baseline(args(split="dev_select", prompt="abstain", long_edge=le)) == 0
+            run_stages.cmd_baseline(args(split="dev", prompt="abstain", long_edge=long_edge)) == 0
         )
 
 
 def test_long_edge_runs_get_their_own_files_and_headers(ready: Path) -> None:
-    probe(edges=(1024,))
+    probe(edges=(2048, 1024))
     base = ready / "predictions" / "baseline" / "smolvlm2-500m"
-    default = json.loads((base / "dev_select-abstain.predictions.jsonl").read_text().split("\n")[0])
-    capped = json.loads(
-        (base / "dev_select-abstain-le1024.predictions.jsonl").read_text().split("\n")[0]
-    )
+    default = json.loads((base / "dev-abstain.predictions.jsonl").read_text().split("\n")[0])
+    capped = json.loads((base / "dev-abstain-le1024.predictions.jsonl").read_text().split("\n")[0])
     assert "image_longest_edge" not in default["_header"]["model"]  # old files stay valid
     assert capped["_header"]["model"]["image_longest_edge"] == 1024
-    r = result(ready, "smolvlm2-500m", "dev_select-abstain-le1024.json")
-    assert r["image_longest_edge"] == 1024 and r["image_tokens"]["questions"] == 4
+    r = result(ready, "smolvlm2-500m", "dev-abstain-le1024.json")
+    assert r["image_longest_edge"] == 1024 and r["image_tokens"]["questions"] == 10
     assert r["gpu_hours"]["prior_estimate"]["stage"].endswith(":le1024")
-    assert result(ready, "smolvlm2-500m", "dev_select-abstain.json")["image_longest_edge"] is None
+    assert result(ready, "smolvlm2-500m", "dev-abstain.json")["image_longest_edge"] is None
 
 
 def test_prompt_choice_ignores_resolution_probe_runs(ready: Path) -> None:
-    probe(edges=(1024,))
+    probe(edges=(2048, 1024))  # dev-abstain exists, dev-plain doesn't: still chosen on dev_select
     _, sel = run_stages._dev_selected_prompt("smolvlm2-500m")
+    assert sel["split"] == "dev_select"
     assert all("-le" not in v["file"] for v in sel["dev"].values())
 
 
@@ -414,16 +414,17 @@ def test_resolution_choice_takes_best_accuracy_then_fewest_tokens(degrading: Pat
     arms = {a["long_edge"]: a for a in doc["arms"]}
     assert set(arms) == {2048, 1536, 1024, 512}
     # 2,048 / 1,536 / 1,024 tie at 100: the best is the one with the fewest tokens, 1,024. 512 is
-    # far worse (outside the 1-point margin), so 1,024 is chosen.
+    # far worse (outside the 2-point margin), so 1,024 is chosen.
     assert doc["best"] == 1024 and doc["chosen"]["long_edge"] == 1024
-    assert doc["margin_points"] == 1.0 and "vs_best" not in arms[1024]
+    assert doc["margin_points"] == 2.0 and "vs_best" not in arms[1024]
     assert not arms[512]["vs_best"]["within_margin"] and "ap_diff_ci95" in arms[512]["vs_best"]
     assert arms[2048]["vs_best"]["within_margin"]  # identical answers: CI [0, 0]
     assert arms[512]["accuracy"] < arms[1024]["accuracy"] == 100.0
     assert arms[512]["vs_default"]["accuracy_diff"] < 0
     assert arms[1024]["vs_default"]["accuracy_diff"] == 0
     assert "vs_default" not in arms[2048]
-    assert doc["rule"].startswith("best = highest dev_select accuracy") and doc["n"] == 4
+    assert doc["rule"].startswith("best = highest dev accuracy") and doc["n"] == 10
+    assert doc["split"] == "dev" and arms[2048]["result"].endswith("dev-abstain.json")
     assert (degrading / "download" / "stage3_prep" / "resolution_choice.json").exists()
     assert "chosen: 1024 px" in capsys.readouterr().out
     # The matched-resolution val run picks the choice up by name.
@@ -435,8 +436,15 @@ def test_resolution_choice_takes_best_accuracy_then_fewest_tokens(degrading: Pat
 
 
 def test_resolution_choice_needs_every_arm(ready: Path) -> None:
-    probe(edges=(1024,))
+    probe(edges=(2048, 1024))
     with pytest.raises(SystemExit, match=r"\[1536, 512\]"):
+        run_stages.cmd_resolution_choice(argparse.Namespace())
+
+
+def test_resolution_choice_needs_the_full_dev_default_run(ready: Path) -> None:
+    """dev_select at 2,048 px exists (prompt choice), but the probe compares on all of dev."""
+    probe(edges=(1536, 1024, 512))
+    with pytest.raises(SystemExit, match=r"\[2048\].*without --long-edge"):
         run_stages.cmd_resolution_choice(argparse.Namespace())
 
 
@@ -450,11 +458,7 @@ def test_resolution_choice_fetches_missing_predictions_from_the_hub(
 ) -> None:
     probe()
     local = (
-        degrading
-        / "predictions"
-        / "baseline"
-        / "smolvlm2-500m"
-        / "dev_select-abstain.predictions.jsonl"
+        degrading / "predictions" / "baseline" / "smolvlm2-500m" / "dev-abstain.predictions.jsonl"
     )
     saved = degrading / "hub_copy.jsonl"
     saved.write_bytes(local.read_bytes())
@@ -464,7 +468,7 @@ def test_resolution_choice_fetches_missing_predictions_from_the_hub(
         run_stages, "download_predictions", lambda ptr: fetched.append(ptr["path"]) or saved
     )
     assert run_stages.cmd_resolution_choice(argparse.Namespace()) == 0
-    assert fetched == ["baseline/smolvlm2-500m/dev_select-abstain.predictions.jsonl"]
+    assert fetched == ["baseline/smolvlm2-500m/dev-abstain.predictions.jsonl"]
 
 
 def test_resolution_choice_rejects_a_mismatched_predictions_header(
@@ -472,10 +476,10 @@ def test_resolution_choice_rejects_a_mismatched_predictions_header(
 ) -> None:
     probe()
     base = degrading / "predictions" / "baseline" / "smolvlm2-500m"
-    wrong = base / "dev_select-abstain-le1536.predictions.jsonl"
+    wrong = base / "dev-abstain-le1536.predictions.jsonl"
     swapped = degrading / "swapped.jsonl"
     swapped.write_bytes(wrong.read_bytes())
-    (base / "dev_select-abstain-le1024.predictions.jsonl").unlink()
+    (base / "dev-abstain-le1024.predictions.jsonl").unlink()
     monkeypatch.setattr(run_stages, "download_predictions", lambda ptr: swapped)
     with pytest.raises(SystemExit, match="header doesn't match long edge 1024"):
         run_stages.cmd_resolution_choice(argparse.Namespace())
