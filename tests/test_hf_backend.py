@@ -155,3 +155,44 @@ def test_prefetch_threads_give_identical_answers(backend, tmp_path) -> None:
     assert [r["raw"] for r in serial.values()] == [r["raw"] for r in prefetch.values()]
     for a, b in zip(serial.values(), prefetch.values(), strict=True):
         assert a["p_unanswerable"] == pytest.approx(b["p_unanswerable"], rel=1e-5, abs=1e-12)
+
+
+# ----------------------------------------------------------- image resolution cap (--long-edge)
+
+
+@pytest.fixture(scope="module")
+def smolvlm_pin():
+    return PINS.models["smolvlm2-500m"]
+
+
+@pytest.mark.parametrize(
+    ("long_edge", "tokens"), [(None, 832), (1536, 640), (1024, 320), (512, 64)]
+)
+def test_long_edge_caps_the_image_tokens(smolvlm_pin, long_edge, tokens) -> None:
+    """A 3:4 portrait (most VizWiz photos): 13 / 10 / 5 / 1 tiles of 64 tokens. The estimates in
+    lumen.zeroshot.estimates.PORTRAIT_TILES come from these counts."""
+    from lumen.zeroshot.estimates import PORTRAIT_TILES
+
+    with skip_on_usage_cap("Hugging Face"):
+        b = tiny_stand_in(
+            smolvlm_pin, gen=GenerationConfig(max_new_tokens=2), image_longest_edge=long_edge
+        )
+    outs = b.run_batch(
+        [Image.new("RGB", (968, 1296), (90, 90, 90))], [chat_messages("Q?", "plain")]
+    )
+    assert len(outs) == 1
+    assert b.image_tokens.as_dict() == {"questions": 1, "mean": float(tokens)}
+    assert tokens == 64 * PORTRAIT_TILES[long_edge or 2048]
+    assert b.describe().get("image_longest_edge") == long_edge
+
+
+def test_long_edge_must_be_a_whole_number_of_tiles(smolvlm_pin) -> None:
+    with skip_on_usage_cap("Hugging Face"), pytest.raises(ValueError, match="must be one of"):
+        tiny_stand_in(smolvlm_pin, image_longest_edge=768)
+    with skip_on_usage_cap("Hugging Face"), pytest.raises(ValueError, match="must be one of"):
+        tiny_stand_in(smolvlm_pin, image_longest_edge=4096)
+
+
+def test_long_edge_refused_for_other_tiling() -> None:
+    with skip_on_usage_cap("Hugging Face"), pytest.raises(ValueError, match="SmolVLM2 models only"):
+        tiny_stand_in(PINS.models["lfm2.5-vl-450m"], image_longest_edge=1024)

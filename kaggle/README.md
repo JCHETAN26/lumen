@@ -18,6 +18,8 @@ is the runner:
 | `data` | 1 | **None** | Download + verify pinned VizWiz files (~15 GB), validate annotations against the zips, build dev split + Mac sample IDs |
 | `mac_sample` | 1 | **None** | Package the 300 pinned val images + annotations for the Mac |
 | `baseline` | 2 | GPU T4 | Zero-shot baselines: 4 models × 2 prompts on dev, then each model's dev-chosen prompt on val |
+| `baseline --long-edge N` | 3 prep | GPU T4 | Image resolution probe: SmolVLM2-500M on `dev_select` at 1,536 / 1,024 / 512 px |
+| `resolution_choice` | 3 prep | **None** | Pick the resolution from the probe (rule fixed in advance) |
 | `train`, `eval` | 3 | GPU T4 | LoRA fine-tuning and evaluation (added in Stage 3) |
 
 ## GPU quota guard
@@ -124,6 +126,34 @@ uv run python kaggle/run_stages.py baseline_summary
   revision and verifies its sha256. If an upload fails, the stage exits 5 and a rerun re-uploads
   without re-answering anything.
 
+## Stage 3 prep: image resolution
+
+```bash
+B="uv run python kaggle/run_stages.py baseline"
+for le in 1536 1024 512; do
+  $B --model smolvlm2-500m --split dev_select --prompt abstain --long-edge $le --gpu-hours-left H
+done
+uv run python kaggle/run_stages.py resolution_choice      # CPU; commit its result
+$B --model smolvlm2-500m --split val --prompt dev-selected --long-edge chosen --gpu-hours-left H
+```
+
+- **Why:** image tokens are most of SmolVLM2's cost. The processor rounds the long edge up to a
+  multiple of its 512 px tile and splits it into tiles plus a global view, 64 tokens each; a 3:4
+  portrait photo gets 13 / 10 / 5 / 1 tiles at 2,048 (default) / 1,536 / 1,024 / 512 px, i.e. 832
+  of ~875 prompt tokens at the default. 768 px gives the same tiles as 1,024, so it isn't offered.
+  Smaller photos are upscaled, so the tile count depends on the aspect ratio, not the photo's size.
+- **Rule, fixed 2026-10-03 before any probe result** (`lumen.zeroshot.resolution`): the best arm
+  has the highest `dev_select` accuracy; the chosen arm is the smallest long edge whose 95% paired
+  bootstrap CI on (accuracy − best accuracy) has a lower bound ≥ −1.0 point. AP is reported with
+  its own paired CI, not decisive. `resolution_choice` re-scores every arm from its predictions on
+  the same questions, and also reports each arm's difference from 2,048 px.
+- **Matched baseline:** `--long-edge chosen` reads the committed `resolution_choice` result; the
+  fine-tune is compared against SmolVLM2-500M zero-shot on val at that resolution. If 2,048 px wins,
+  the existing val run already is that baseline and the command runs nothing.
+- **Files:** a capped run is `<split>-<prompt>-le<N>.json` with its own predictions file, whose
+  header records the cap; default-resolution runs keep their names and headers. Prompt choice only
+  reads default-resolution runs.
+
 ## 4. What to download, and where it goes
 
 Only **`/kaggle/working/lumen-results/`** leaves Kaggle (Output tab). Commit its contents on the
@@ -137,6 +167,7 @@ Mac. Copy only files that don't exist yet; never overwrite a committed result.
 | `mac_sample/*.tar.gz` | **not committed**: extract to `data/mac_sample/` on the Mac (gitignored) |
 | `mac_sample_val_*.json` | `results/mac_sample/` (records the archive's sha256) |
 | `baseline/<model>/*.json` | `results/baseline/<model>/` (`baseline/smoke/` too, if you want the checks kept) |
+| `stage3_prep/*.json` | `results/stage3_prep/` |
 
 After the first `data` run, copy the sha256 values from `observed_hashes.json` into
 `configs/pins.yaml`. From then on, any download that doesn't match stops the run.

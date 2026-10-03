@@ -43,8 +43,12 @@ def question_ids_sha256(ids: Sequence[str]) -> str:
 
 def predictions_header(backend: Backend, prompt_key: str, split: str) -> dict[str, Any]:
     d = backend.describe()
+    model = {k: d.get(k) for k in ("model_key", "repo", "revision", "stand_in", "backend")}
+    # Only when set: files written at the processor's default resolution keep their header.
+    if d.get("image_longest_edge") is not None:
+        model["image_longest_edge"] = d["image_longest_edge"]
     return {
-        "model": {k: d.get(k) for k in ("model_key", "repo", "revision", "stand_in", "backend")},
+        "model": model,
         "generation": d.get("generation"),
         "prompt_key": prompt_key,
         "prompt_template": PROMPTS[prompt_key],

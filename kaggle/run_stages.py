@@ -9,9 +9,12 @@ Stages (each writes result JSON under results/ and copies it to the download fol
     mac_sample  package the ~300 pinned val images + their annotations for the Mac   (CPU only)
     storage_check  confirm HF_TOKEN can write to the private predictions + adapter repos
     baseline_summary  one line per baseline result: accuracy, CI, AP, s/question, GPU hours
+    resolution_choice  pick SmolVLM2-500M's image resolution from the dev_select probe runs
+                (CPU only; reads the probe's predictions)
 
     baseline    zero-shot baselines (Stage 2) for the pinned models on dev or val        (GPU)
                 --dry-run prints the GPU-hour plan without loading anything
+                --long-edge N caps the image's long edge (SmolVLM2; the resolution probe)
 
 Later stages: train and eval (Stage 3). Every GPU stage goes through the quota guard in
 lumen.budget. The final test evaluation is sealed (lumen.eval.test_seal) and needs
@@ -24,6 +27,8 @@ Image zips stay on Kaggle.
     uv run python kaggle/run_stages.py data
     uv run python kaggle/run_stages.py mac_sample
     uv run python kaggle/run_stages.py baseline --model all --split dev --prompt both --dry-run
+    uv run python kaggle/run_stages.py baseline --model smolvlm2-500m --split dev_select \
+        --prompt abstain --long-edge 1024 --gpu-hours-left 8
 """
 
 from __future__ import annotations
@@ -55,6 +60,7 @@ from lumen.data.splits import (  # noqa: E402
 )
 from lumen.pins import SPLITS_DIR, load_pins  # noqa: E402
 from lumen.runmeta import hardware_info, run_metadata, write_result  # noqa: E402
+from lumen.zeroshot.estimates import DEFAULT_LONG_EDGE, PORTRAIT_TILES  # noqa: E402
 from lumen.zeroshot.prompts import PROMPTS  # noqa: E402
 
 ON_KAGGLE = Path("/kaggle/working").is_dir()
@@ -373,13 +379,20 @@ def _run_dir(model_key: str, kind: str) -> Path:
     return RESULTS / BASELINE_DIR / kind / model_key
 
 
-def _pred_path(model_key: str, split: str, prompt_key: str, kind: str) -> Path:
+def _run_name(split: str, prompt_key: str, long_edge: int | None = None) -> str:
+    """dev_select-abstain, or dev_select-abstain-le1024 with a capped image resolution."""
+    return f"{split}-{prompt_key}" + ("" if long_edge is None else f"-le{long_edge}")
+
+
+def _pred_path(
+    model_key: str, split: str, prompt_key: str, kind: str, long_edge: int | None = None
+) -> Path:
     return (
         PREDICTIONS_DIR
         / BASELINE_DIR
         / kind
         / model_key
-        / f"{split}-{prompt_key}.predictions.jsonl"
+        / f"{_run_name(split, prompt_key, long_edge)}.predictions.jsonl"
     )
 
 
@@ -390,6 +403,13 @@ def make_hub_api():
     return hub.make_api()
 
 
+def _result_files(run_dir: Path, name: str) -> list[Path]:
+    """name.json, name.1.json, name.2.json, ...: oldest first (write_result never overwrites)."""
+    numbered = [f for f in run_dir.glob(f"{name}.*.json") if f.stem.split(".")[1].isdigit()]
+    plain = [run_dir / f"{name}.json"] if (run_dir / f"{name}.json").exists() else []
+    return plain + sorted(numbered, key=lambda f: int(f.stem.split(".")[1]))
+
+
 def _dev_selected_prompt(model_key: str) -> tuple[str, dict]:
     """The prompt with the best accuracy on dev_select, the fixed 512-question dev subset (or on
     full dev if that's what was run); ties: higher AP, then name. Never val."""
@@ -398,7 +418,7 @@ def _dev_selected_prompt(model_key: str) -> tuple[str, dict]:
         (
             sp
             for sp in ("dev_select", "dev")
-            if all(list(run_dir.glob(f"{sp}-{k}*.json")) for k in PROMPTS)
+            if all(_result_files(run_dir, _run_name(sp, k)) for k in PROMPTS)
         ),
         None,
     )
@@ -409,9 +429,7 @@ def _dev_selected_prompt(model_key: str) -> tuple[str, dict]:
         )
     found = {}
     for key in PROMPTS:
-        files = sorted(run_dir.glob(f"{sel_split}-{key}.json")) + sorted(
-            run_dir.glob(f"{sel_split}-{key}.[0-9]*.json")
-        )
+        files = _result_files(run_dir, _run_name(sel_split, key))
         doc = json.loads(files[-1].read_text())
         found[key] = {
             "file": str(files[-1].relative_to(REPO_ROOT)),
@@ -437,10 +455,13 @@ def _make_backend(model_key: str, args: argparse.Namespace):
     if device is None:
         raise SystemExit("no CUDA GPU: attach a T4, or pass --device cpu (only for --stand-in)")
     gen = GenerationConfig()
+    long_edge = args.long_edge
     if args.stand_in:
-        return tiny_stand_in(pin, device=device, gen=gen)
+        return tiny_stand_in(pin, device=device, gen=gen, image_longest_edge=long_edge)
     dtype = "float16" if device == "cuda" else "float32"  # T4: no bf16
-    return HFBackend.from_pin(pin, device=device, dtype=dtype, gen=gen)
+    return HFBackend.from_pin(
+        pin, device=device, dtype=dtype, gen=gen, image_longest_edge=long_edge
+    )
 
 
 _BACKENDS: dict[str, object] = {}
@@ -448,9 +469,10 @@ _BACKENDS: dict[str, object] = {}
 
 def _cached_backend(model_key: str, args: argparse.Namespace):
     """Load each model once per process, even when it runs several prompts."""
-    if model_key not in _BACKENDS:
-        _BACKENDS[model_key] = _make_backend(model_key, args)
-    return _BACKENDS[model_key]
+    key = f"{model_key}@le{args.long_edge}"
+    if key not in _BACKENDS:
+        _BACKENDS[key] = _make_backend(model_key, args)
+    return _BACKENDS[key]
 
 
 # Tests replace this to run the whole stage with a fake or tiny backend.
@@ -479,20 +501,25 @@ def _baseline_one(
     smoke = kind != ""
     records, zip_path = _load_split(split, pins, limit=args.limit)
     run_dir = _run_dir(model_key, kind)
-    pred_path = _pred_path(model_key, split, prompt_key, kind)
+    long_edge = args.long_edge
+    name = _run_name(split, prompt_key, long_edge)
+    pred_path = _pred_path(model_key, split, prompt_key, kind, long_edge)
     _, done = read_predictions(pred_path)
     remaining = len([r for r in records if r["question_id"] not in done])
-    prior = estimate_run(model_key, split, prompt_key, remaining)
+    prior = estimate_run(model_key, split, prompt_key, remaining, long_edge)
     used = (time.monotonic() - SESSION_START) / 3600
     left = None if args.gpu_hours_left is None else args.gpu_hours_left - used
+    res = "" if long_edge is None else f" | long edge {long_edge} px"
     print(
-        f"\n== {model_key} | {split} | prompt={prompt_key} | {remaining}/{len(records)} to go"
+        f"\n== {model_key} | {split} | prompt={prompt_key}{res} | {remaining}/{len(records)} to go"
         f" | prior estimate {prior.hours:.2f} GPU h"
     )
     if not args.stand_in:
         check_budget(prior, left)
 
     backend = make_backend(model_key, args)
+    if hasattr(backend, "image_tokens"):  # count this run only (backends are cached per model)
+        backend.image_tokens = type(backend.image_tokens)()
     batch_size = args.batch_size or MODEL_COSTS[model_key].batch_size
     header = predictions_header(backend, prompt_key, split)
     calibration: dict = {}
@@ -502,7 +529,9 @@ def _baseline_one(
             return
         cal = calibrated_estimate(prior, n_done, seconds)
         rest = calibrated_estimate(
-            estimate_run(model_key, split, prompt_key, remaining - n_done), n_done, seconds
+            estimate_run(model_key, split, prompt_key, remaining - n_done, long_edge),
+            n_done,
+            seconds,
         )
         calibration.update(
             estimate=cal.as_dict(), measured_items=n_done, measured_seconds=round(seconds, 2)
@@ -552,7 +581,7 @@ def _baseline_one(
                 chosen = on if workers else off
                 cal = calibrated_estimate(prior, chosen.new, chosen.seconds)
                 rest = calibrated_estimate(
-                    estimate_run(model_key, split, prompt_key, remaining - seg_new),
+                    estimate_run(model_key, split, prompt_key, remaining - seg_new, long_edge),
                     chosen.new,
                     chosen.seconds,
                 )
@@ -581,6 +610,7 @@ def _baseline_one(
         _, preds = read_predictions(pred_path)
         stats = None
     hours = (time.monotonic() - t0) / 3600
+    image_tokens = getattr(backend, "image_tokens", None)
 
     payload = {
         "stage": "baseline",
@@ -591,6 +621,8 @@ def _baseline_one(
         "split": split,
         "prompt": header,
         "prompt_selection": prompt_selection,
+        "image_longest_edge": long_edge,  # None = the processor's default (2,048 px for SmolVLM2)
+        "image_tokens": image_tokens.as_dict() if image_tokens is not None else None,
         "batch_size": batch_size,
         "prefetch_workers": workers,
         "prefetch_ab": prefetch_ab,
@@ -617,7 +649,7 @@ def _baseline_one(
     payload["predictions"], storage_error = _store_predictions(
         pred_path, model_key, split, prompt_key, smoke=smoke or status != "completed"
     )
-    result = write_result(run_dir / f"{split}-{prompt_key}.json", payload)
+    result = write_result(run_dir / f"{name}.json", payload)
     collect(result, str(Path(BASELINE_DIR) / kind / model_key))
     if status != "completed":
         print(f"FAILED: {error}\n   recorded in {result}")
@@ -689,9 +721,11 @@ def _baseline_plan(models: list[str], split: str, prompts: list[str], args) -> l
     for m in models:
         for p in prompts:
             n = min(n_split[split], args.limit) if args.limit else n_split[split]
-            pred = _pred_path(m, split, p, _run_kind(args))
+            pred = _pred_path(m, split, p, _run_kind(args), args.long_edge)
             done = len(read_predictions(pred)[1])
-            plan.append((m, p, n - done, estimate_run(m, split, p, max(n - done, 0))))
+            plan.append(
+                (m, p, n - done, estimate_run(m, split, p, max(n - done, 0), args.long_edge))
+            )
     del pins
     return plan
 
@@ -708,6 +742,14 @@ def cmd_baseline(args: argparse.Namespace) -> int:
         raise SystemExit("val uses the prompt chosen on dev: pass --prompt dev-selected")
     if args.split in ("dev", "dev_select") and args.prompt == "dev-selected":
         raise SystemExit("--prompt dev-selected is for val")
+    requested = args.long_edge
+    args.long_edge = _resolve_long_edge(requested, models)
+    if requested == "chosen" and args.long_edge is None:
+        print(
+            f"the chosen resolution is the default ({DEFAULT_LONG_EDGE} px): the default-"
+            "resolution runs already are the matched baseline; nothing to run"
+        )
+        return 0
 
     selections: dict[str, dict] = {}
     if args.split == "val":
@@ -787,7 +829,7 @@ def cmd_baseline_summary(args: argparse.Namespace) -> int:
         return 0
     head = (
         f"{'kind':<9}{'model':<16}{'split':<6}{'prompt':<9}{'status':<10}{'n':>5}"
-        f"{'acc':>7}{'95% CI':>15}{'AP':>7}{'unans%':>8}{'s/q':>7}{'GPU h':>7}  stored"
+        f"{'acc':>7}{'95% CI':>15}{'AP':>7}{'unans%':>8}{'s/q':>7}{'GPU h':>7}{'edge':>6}  stored"
     )
     print(head)
     for f in files:
@@ -811,9 +853,212 @@ def cmd_baseline_summary(args: argparse.Namespace) -> int:
             f"{ans.get('average_precision', float('nan')):>7.2f}"
             f"{100 * m.get('said_unanswerable_rate', float('nan')):>8.1f}"
             f"{spq if spq is not None else float('nan'):>7.3f}"
-            f"{d['gpu_hours']['actual_this_run']:>7.2f}  {stored}"
+            f"{d['gpu_hours']['actual_this_run']:>7.2f}"
+            f"{d.get('image_longest_edge') or DEFAULT_LONG_EDGE:>6}  {stored}"
         )
     return 0
+
+
+# ---------------------------------------------------------------------- resolution_choice
+
+PROBE_MODEL = "smolvlm2-500m"  # the model Lumen fine-tunes
+LONG_EDGE_MODELS = ("smolvlm2-500m", "smolvlm2-256m")  # same processor: 512 px tiles, 2,048 cap
+PREP_DIR = "stage3_prep"
+
+
+def _long_edge_arg(value: str) -> int | str:
+    if value == "chosen":
+        return value
+    n = int(value)
+    if n not in PORTRAIT_TILES:
+        raise argparse.ArgumentTypeError(f"must be one of {sorted(PORTRAIT_TILES)} or 'chosen'")
+    return n
+
+
+def _chosen_long_edge() -> int:
+    files = _result_files(RESULTS / PREP_DIR, "resolution_choice")
+    if not files:
+        raise SystemExit(
+            "no resolution choice yet: run the dev_select probe at every long edge, then the "
+            "resolution_choice stage (and commit its result)"
+        )
+    return int(json.loads(files[-1].read_text())["chosen"]["long_edge"])
+
+
+def _resolve_long_edge(value: int | str | None, models: list[str]) -> int | None:
+    """The cap to run with; None = the processor's default (2,048), so default-resolution runs
+    keep their existing file names and predictions headers."""
+    if value is None:
+        return None
+    if value == "chosen":
+        value = _chosen_long_edge()
+    other = sorted(set(models) - set(LONG_EDGE_MODELS))
+    if other:
+        raise SystemExit(f"--long-edge applies to {list(LONG_EDGE_MODELS)} only, not {other}")
+    return None if value == DEFAULT_LONG_EDGE else int(value)
+
+
+def download_predictions(pointer: dict) -> Path:
+    """Tests replace this; on Kaggle it fetches from the private Hub repo, checking the sha256."""
+    from lumen import hub
+
+    return hub.download(pointer)
+
+
+def _probe_predictions(doc: dict, prompt: str, long_edge: int | None) -> dict[str, dict]:
+    """A probe run's predictions: the local file if its sha256 matches the result, else the Hub."""
+    pointer = doc["predictions"]
+    local = _pred_path(PROBE_MODEL, "dev_select", prompt, "", long_edge)
+    if local.exists() and hashlib.sha256(local.read_bytes()).hexdigest() == pointer["sha256"]:
+        path = local
+    elif pointer.get("stored") == "private Hugging Face dataset":
+        path = download_predictions(pointer)
+    else:
+        raise SystemExit(f"{local.name}: not on disk and not stored on the Hub ({pointer})")
+    from lumen.zeroshot.harness import read_predictions
+
+    header, preds = read_predictions(path)
+    if header is None or header["model"].get("image_longest_edge") != long_edge:
+        raise SystemExit(f"{path.name}: predictions header doesn't match long edge {long_edge}")
+    return preds
+
+
+def cmd_resolution_choice(args: argparse.Namespace) -> int:
+    """Pick the image resolution for fine-tuning from the dev_select probe (dev data only).
+
+    Each long edge's dev_select run (the dev-chosen prompt) is re-scored from its predictions so
+    every arm is compared on the same questions. The rule (lumen.zeroshot.resolution.RULE, fixed in
+    advance) uses paired bootstrap CIs on the accuracy difference from the best arm; differences
+    from the default 2,048 px and all AP differences are reported, not decisive.
+    """
+    import numpy as np
+
+    from lumen.eval.answerability import evaluate_answerability
+    from lumen.eval.bootstrap import bootstrap_ci
+    from lumen.eval.vizwiz_metric import evaluate_accuracy
+    from lumen.zeroshot.harness import question_ids_sha256
+    from lumen.zeroshot.resolution import RULE, choose_long_edge
+
+    warn_if_gpu_attached("resolution_choice")
+    prompt, selection = _dev_selected_prompt(PROBE_MODEL)
+    run_dir = _run_dir(PROBE_MODEL, "")
+    edges = sorted(PORTRAIT_TILES, reverse=True)
+    docs: dict[int, tuple[Path, dict]] = {}
+    for le in edges:
+        files = _result_files(run_dir, _run_name("dev_select", prompt, _resolve(le)))
+        if files:
+            docs[le] = (files[-1], json.loads(files[-1].read_text()))
+    missing = [le for le in edges if le not in docs]
+    if missing:
+        raise SystemExit(
+            f"no dev_select probe run for long edge {missing}: run `baseline --model {PROBE_MODEL}"
+            f" --split dev_select --prompt {prompt} --long-edge N` for each"
+        )
+    for f, d in docs.values():
+        if d["status"] != "completed":
+            raise SystemExit(f"{f.name}: status {d['status']}; rerun it to completion first")
+
+    records, _ = _load_split("dev_select", load_pins(), limit=None)
+    ids = [r["question_id"] for r in records]
+    for f, d in docs.values():
+        if d["metrics"]["question_ids_sha256"] != question_ids_sha256(ids):
+            raise SystemExit(f"{f.name}: answered a different dev_select than the committed one")
+    y = np.array([r["answerable"] for r in records])
+
+    def ap(labels: np.ndarray, scores: np.ndarray) -> float:
+        return evaluate_answerability(labels, scores).average_precision
+
+    scored = {}
+    for le in edges:
+        preds = _probe_predictions(docs[le][1], prompt, _resolve(le))
+        acc = evaluate_accuracy({q: p["answer"] for q, p in preds.items()}, records)
+        a = np.array([100 * acc.per_question[q] for q in ids])
+        s = np.array([1.0 - preds[q]["p_unanswerable"] for q in ids])
+        scored[le] = (acc, a, s)
+
+    choice = choose_long_edge({le: a for le, (_, a, _) in scored.items()})
+    best = choice["best"]
+    _, a0, s0 = scored[DEFAULT_LONG_EDGE]
+    _, _, s_best = scored[best]
+    arms = []
+    for le in edges:
+        f, d = docs[le]
+        acc, a, s = scored[le]
+        arm = {
+            "long_edge": le,
+            "result": str(f.relative_to(REPO_ROOT)),
+            "accuracy": acc.overall,
+            "accuracy_official": acc.overall_official,
+            "average_precision": ap(y, s),
+            "portrait_tiles": PORTRAIT_TILES[le],
+            "image_tokens": d.get("image_tokens"),
+            "sec_per_question": (d.get("run") or {}).get("sec_per_question"),
+        }
+        if le != best:
+            arm["vs_best"] = {
+                **choice["vs_best"][le],
+                "ap_diff": ap(y, s) - ap(y, s_best),
+                "ap_diff_ci95": bootstrap_ci(
+                    len(ids), lambda i, s=s: ap(y[i], s[i]) - ap(y[i], s_best[i])
+                ),
+            }
+        if le != DEFAULT_LONG_EDGE:
+            arm["vs_default"] = {
+                "accuracy_diff": float(a.mean() - a0.mean()),
+                "accuracy_diff_ci95": bootstrap_ci(
+                    len(ids), lambda i, a=a: float(a[i].mean() - a0[i].mean())
+                ),
+                "ap_diff": ap(y, s) - ap(y, s0),
+                "ap_diff_ci95": bootstrap_ci(
+                    len(ids), lambda i, s=s: ap(y[i], s[i]) - ap(y[i], s0[i])
+                ),
+            }
+        arms.append(arm)
+
+    chosen = next(r for r in arms if r["long_edge"] == choice["chosen"])
+    payload = {
+        "stage": "resolution_choice",
+        "model": PROBE_MODEL,
+        "split": "dev_select",
+        "n": len(ids),
+        "question_ids_sha256": question_ids_sha256(ids),
+        "prompt": prompt,
+        "prompt_selection": selection,
+        "rule": RULE,
+        "margin_points": choice["margin_points"],
+        "best": best,
+        "arms": arms,
+        "chosen": {"long_edge": chosen["long_edge"], "accuracy": chosen["accuracy_official"]},
+    }
+    result = write_result(RESULTS / PREP_DIR / "resolution_choice.json", payload)
+    collect(result, PREP_DIR)
+    print(
+        f"{'long edge':>9}{'tiles':>7}{'acc':>8}{'vs best [95% CI]':>24}{'ok':>4}"
+        f"{'AP':>8}{'AP vs best':>12}{'s/q':>8}"
+    )
+    for r in arms:
+        v = r.get("vs_best")
+        if v:
+            ci = v["accuracy_diff_ci95"]
+            diff = f"{v['accuracy_diff']:+.2f} [{ci['low']:+.1f}, {ci['high']:+.1f}]"
+            ok, ap_diff = ("yes" if v["within_margin"] else "no"), f"{v['ap_diff']:+.2f}"
+        else:
+            diff, ok, ap_diff = "(best)", "yes", ""
+        spq = r["sec_per_question"]
+        print(
+            f"{r['long_edge']:>9}{r['portrait_tiles']:>7}{r['accuracy_official']:>8.2f}"
+            f"{diff:>24}{ok:>4}{r['average_precision']:>8.2f}{ap_diff:>12}"
+            f"{spq if spq is not None else float('nan'):>8.3f}"
+        )
+    print(
+        f"best: {best} px; chosen: {chosen['long_edge']} px (smallest long edge whose CI lower "
+        f"bound vs best is >= -{choice['margin_points']:g} point)"
+    )
+    return 0
+
+
+def _resolve(long_edge: int) -> int | None:
+    return None if long_edge == DEFAULT_LONG_EDGE else long_edge
 
 
 # -------------------------------------------------------------------------- storage_check
@@ -860,6 +1105,9 @@ def main() -> int:
     sub.add_parser(
         "storage_check", help="check HF_TOKEN against the private Hub repos"
     ).set_defaults(fn=cmd_storage_check)
+    sub.add_parser(
+        "resolution_choice", help="pick the image resolution from the dev_select probe (CPU)"
+    ).set_defaults(fn=cmd_resolution_choice)
     b = sub.add_parser("baseline", help="zero-shot baselines (Stage 2)")
     b.add_argument("--model", nargs="+", default=["all"], help="pinned model keys, or 'all'")
     b.add_argument("--split", choices=["dev", "dev_select", "val"], required=True)
@@ -884,6 +1132,13 @@ def main() -> int:
         "--stand-in",
         action="store_true",
         help="tiny random-weight model with the real processor (pipeline check)",
+    )
+    b.add_argument(
+        "--long-edge",
+        type=_long_edge_arg,
+        default=None,
+        help="cap the image's long edge in px (SmolVLM2-500M/256M: 512, 1024, 1536, 2048 = "
+        "default), or 'chosen' for the resolution picked by resolution_choice",
     )
     b.add_argument("--device", choices=["cuda", "cpu"], default=None)
     b.add_argument("--dry-run", action="store_true", help="print the GPU-hour plan and exit")

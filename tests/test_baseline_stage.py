@@ -32,6 +32,7 @@ def args(**kw) -> argparse.Namespace:
         device=None,
         dry_run=False,
         prefetch_workers=2,  # every stage test also exercises the prefetch path
+        long_edge=None,
     )
     return argparse.Namespace(**(base | kw))
 
@@ -45,7 +46,11 @@ def ready(env: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     shutil.copy(env / "results" / "splits" / "dev.txt", committed / "dev.txt")
     fakes: dict[str, FakeBackend] = {}
     monkeypatch.setattr(
-        run_stages, "make_backend", lambda key, a: fakes.setdefault(key, FakeBackend())
+        run_stages,
+        "make_backend",
+        lambda key, a: fakes.setdefault(
+            f"{key}@{a.long_edge}", FakeBackend(image_longest_edge=a.long_edge)
+        ),
     )
     return env
 
@@ -326,3 +331,162 @@ def test_workers_arg() -> None:
     assert run_stages._workers_arg("auto") == "auto" and run_stages._workers_arg("0") == 0
     with pytest.raises(argparse.ArgumentTypeError):
         run_stages._workers_arg("-1")
+
+
+# ------------------------------------------------------- image resolution probe (Stage 3 prep)
+
+
+def probe(edges=(1536, 1024, 512)) -> None:
+    """Prompt choice on dev_select at the default resolution, then the abstain-prompt probe."""
+    assert run_stages.cmd_baseline(args(split="dev_select")) == 0
+    for le in edges:
+        assert (
+            run_stages.cmd_baseline(args(split="dev_select", prompt="abstain", long_edge=le)) == 0
+        )
+
+
+def test_long_edge_runs_get_their_own_files_and_headers(ready: Path) -> None:
+    probe(edges=(1024,))
+    base = ready / "predictions" / "baseline" / "smolvlm2-500m"
+    default = json.loads((base / "dev_select-abstain.predictions.jsonl").read_text().split("\n")[0])
+    capped = json.loads(
+        (base / "dev_select-abstain-le1024.predictions.jsonl").read_text().split("\n")[0]
+    )
+    assert "image_longest_edge" not in default["_header"]["model"]  # old files stay valid
+    assert capped["_header"]["model"]["image_longest_edge"] == 1024
+    r = result(ready, "smolvlm2-500m", "dev_select-abstain-le1024.json")
+    assert r["image_longest_edge"] == 1024 and r["image_tokens"]["questions"] == 4
+    assert r["gpu_hours"]["prior_estimate"]["stage"].endswith(":le1024")
+    assert result(ready, "smolvlm2-500m", "dev_select-abstain.json")["image_longest_edge"] is None
+
+
+def test_prompt_choice_ignores_resolution_probe_runs(ready: Path) -> None:
+    probe(edges=(1024,))
+    _, sel = run_stages._dev_selected_prompt("smolvlm2-500m")
+    assert all("-le" not in v["file"] for v in sel["dev"].values())
+
+
+def test_default_long_edge_is_the_default_run(ready: Path) -> None:
+    assert run_stages.cmd_baseline(args(split="dev_select", prompt="plain", long_edge=2048)) == 0
+    r = result(ready, "smolvlm2-500m", "dev_select-plain.json")
+    assert r["image_longest_edge"] is None
+
+
+def test_long_edge_only_for_smolvlm_tiling(ready: Path) -> None:
+    with pytest.raises(SystemExit, match=r"lfm2\.5-vl-450m"):
+        run_stages.cmd_baseline(args(model=["lfm2.5-vl-450m"], long_edge=1024))
+    with pytest.raises(argparse.ArgumentTypeError):
+        run_stages._long_edge_arg("768")  # rounds up to 1,024 tiles: not a distinct setting
+    assert run_stages._long_edge_arg("chosen") == "chosen"
+    assert run_stages._long_edge_arg("512") == 512
+
+
+def test_lower_resolution_has_a_cheaper_prior() -> None:
+    from lumen.zeroshot.estimates import estimate_run
+
+    full = estimate_run("smolvlm2-500m", "dev_select", "abstain", 512)
+    low = estimate_run("smolvlm2-500m", "dev_select", "abstain", 512, long_edge=1024)
+    assert low.sec_per_item < full.sec_per_item
+    assert estimate_run("smolvlm2-500m", "v", "p", 10, long_edge=512).sec_per_item > 0
+
+
+@pytest.fixture
+def degrading(ready: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A fake that answers wrong at 512 px and right at every larger cap."""
+    fakes: dict[str, FakeBackend] = {}
+    monkeypatch.setattr(
+        run_stages,
+        "make_backend",
+        lambda key, a: fakes.setdefault(
+            f"{key}@{a.long_edge}",
+            FakeBackend(
+                answer="cat" if a.long_edge == 512 else "dog", image_longest_edge=a.long_edge
+            ),
+        ),
+    )
+    return ready
+
+
+def test_resolution_choice_takes_best_accuracy_then_fewest_tokens(degrading: Path, capsys) -> None:
+    probe()
+    assert run_stages.cmd_resolution_choice(argparse.Namespace()) == 0
+    doc = json.loads((degrading / "results" / "stage3_prep" / "resolution_choice.json").read_text())
+    arms = {a["long_edge"]: a for a in doc["arms"]}
+    assert set(arms) == {2048, 1536, 1024, 512}
+    # 2,048 / 1,536 / 1,024 tie at 100: the best is the one with the fewest tokens, 1,024. 512 is
+    # far worse (outside the 1-point margin), so 1,024 is chosen.
+    assert doc["best"] == 1024 and doc["chosen"]["long_edge"] == 1024
+    assert doc["margin_points"] == 1.0 and "vs_best" not in arms[1024]
+    assert not arms[512]["vs_best"]["within_margin"] and "ap_diff_ci95" in arms[512]["vs_best"]
+    assert arms[2048]["vs_best"]["within_margin"]  # identical answers: CI [0, 0]
+    assert arms[512]["accuracy"] < arms[1024]["accuracy"] == 100.0
+    assert arms[512]["vs_default"]["accuracy_diff"] < 0
+    assert arms[1024]["vs_default"]["accuracy_diff"] == 0
+    assert "vs_default" not in arms[2048]
+    assert doc["rule"].startswith("best = highest dev_select accuracy") and doc["n"] == 4
+    assert (degrading / "download" / "stage3_prep" / "resolution_choice.json").exists()
+    assert "chosen: 1024 px" in capsys.readouterr().out
+    # The matched-resolution val run picks the choice up by name.
+    assert (
+        run_stages.cmd_baseline(args(split="val", prompt="dev-selected", long_edge="chosen")) == 0
+    )
+    val = result(degrading, "smolvlm2-500m", "val-abstain-le1024.json")
+    assert val["image_longest_edge"] == 1024 and val["metrics"]["n"] == 24
+
+
+def test_resolution_choice_needs_every_arm(ready: Path) -> None:
+    probe(edges=(1024,))
+    with pytest.raises(SystemExit, match=r"\[1536, 512\]"):
+        run_stages.cmd_resolution_choice(argparse.Namespace())
+
+
+def test_long_edge_chosen_needs_a_choice(ready: Path) -> None:
+    with pytest.raises(SystemExit, match="no resolution choice"):
+        run_stages.cmd_baseline(args(split="val", prompt="dev-selected", long_edge="chosen"))
+
+
+def test_resolution_choice_fetches_missing_predictions_from_the_hub(
+    degrading: Path, monkeypatch
+) -> None:
+    probe()
+    local = (
+        degrading
+        / "predictions"
+        / "baseline"
+        / "smolvlm2-500m"
+        / "dev_select-abstain.predictions.jsonl"
+    )
+    saved = degrading / "hub_copy.jsonl"
+    saved.write_bytes(local.read_bytes())
+    local.unlink()
+    fetched = []
+    monkeypatch.setattr(
+        run_stages, "download_predictions", lambda ptr: fetched.append(ptr["path"]) or saved
+    )
+    assert run_stages.cmd_resolution_choice(argparse.Namespace()) == 0
+    assert fetched == ["baseline/smolvlm2-500m/dev_select-abstain.predictions.jsonl"]
+
+
+def test_resolution_choice_rejects_a_mismatched_predictions_header(
+    degrading: Path, monkeypatch
+) -> None:
+    probe()
+    base = degrading / "predictions" / "baseline" / "smolvlm2-500m"
+    wrong = base / "dev_select-abstain-le1536.predictions.jsonl"
+    swapped = degrading / "swapped.jsonl"
+    swapped.write_bytes(wrong.read_bytes())
+    (base / "dev_select-abstain-le1024.predictions.jsonl").unlink()
+    monkeypatch.setattr(run_stages, "download_predictions", lambda ptr: swapped)
+    with pytest.raises(SystemExit, match="header doesn't match long edge 1024"):
+        run_stages.cmd_resolution_choice(argparse.Namespace())
+
+
+def test_chosen_default_resolution_runs_nothing(ready: Path, monkeypatch, capsys) -> None:
+    choice = ready / "results" / "stage3_prep"
+    choice.mkdir(parents=True)
+    (choice / "resolution_choice.json").write_text(json.dumps({"chosen": {"long_edge": 2048}}))
+    monkeypatch.setattr(run_stages, "make_backend", lambda *a: pytest.fail("loaded a model"))
+    assert (
+        run_stages.cmd_baseline(args(split="val", prompt="dev-selected", long_edge="chosen")) == 0
+    )
+    assert "nothing to run" in capsys.readouterr().out

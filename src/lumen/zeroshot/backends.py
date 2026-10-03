@@ -87,6 +87,24 @@ class NonFiniteOutput(RuntimeError):
     """fp16 overflow or a broken model: logits contained NaN/Inf. Never scored silently."""
 
 
+@dataclass
+class ImageTokenStats:
+    """Image tokens per question over the questions a backend has answered (the main cost lever:
+    at SmolVLM2's default 2,048 px cap a VizWiz portrait photo is ~830 of ~875 prompt tokens)."""
+
+    questions: int = 0
+    tokens: int = 0
+
+    def add(self, per_question: list[int]) -> None:
+        self.questions += len(per_question)
+        self.tokens += sum(per_question)
+
+    def as_dict(self) -> dict[str, Any] | None:
+        if not self.questions:
+            return None
+        return {"questions": self.questions, "mean": round(self.tokens / self.questions, 1)}
+
+
 # ----------------------------------------------------------------------------- fake backend
 
 
@@ -99,13 +117,20 @@ class FakeBackend:
 
     name = "fake"
 
-    def __init__(self, answer: str = "dog", nan_on: str | None = None) -> None:
+    def __init__(
+        self, answer: str = "dog", nan_on: str | None = None, image_longest_edge: int | None = None
+    ) -> None:
         self.answer = answer
         self.nan_on = nan_on
+        self.image_longest_edge = image_longest_edge
+        self.image_tokens = ImageTokenStats()
         self.calls = 0
 
     def describe(self) -> dict[str, Any]:
-        return {"backend": "fake", "fixed_answer": self.answer}
+        d: dict[str, Any] = {"backend": "fake", "fixed_answer": self.answer}
+        if self.image_longest_edge is not None:
+            d["image_longest_edge"] = self.image_longest_edge
+        return d
 
     def prepare(self, images: list[Image.Image], messages: list[list[dict]]) -> list[str]:
         for image in images:
@@ -117,6 +142,7 @@ class FakeBackend:
 
     def run_prepared(self, texts: list[str]) -> list[BatchOutput]:
         self.calls += 1
+        self.image_tokens.add([(self.image_longest_edge or 2048) // 8] * len(texts))
         out = []
         for text in texts:
             if self.nan_on and self.nan_on in text:
@@ -145,6 +171,7 @@ class HFBackend:
         gen: GenerationConfig,
         pin: ModelPin | None = None,
         stand_in: bool = False,
+        image_longest_edge: int | None = None,
     ) -> None:
         self.name = name
         self.model = model.eval()
@@ -155,6 +182,9 @@ class HFBackend:
         self.gen = gen
         self.pin = pin
         self.stand_in = stand_in
+        self.image_longest_edge = image_longest_edge
+        self._images_kwargs = _images_kwargs(processor, image_longest_edge)
+        self.image_tokens = ImageTokenStats()
         tok = processor.tokenizer
         self._variants = sorted(
             {tuple(tok(v, add_special_tokens=False).input_ids) for v in UNANSWERABLE_VARIANTS}
@@ -175,7 +205,13 @@ class HFBackend:
 
     @classmethod
     def from_pin(
-        cls, pin: ModelPin, *, device: str, dtype: str, gen: GenerationConfig
+        cls,
+        pin: ModelPin,
+        *,
+        device: str,
+        dtype: str,
+        gen: GenerationConfig,
+        image_longest_edge: int | None = None,
     ) -> HFBackend:
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -184,13 +220,21 @@ class HFBackend:
         model = AutoModelForImageTextToText.from_pretrained(
             pin.repo, revision=pin.revision, dtype=getattr(torch, dtype)
         ).to(device)
-        return cls(pin.key, model, processor, device=device, gen=gen, pin=pin)
+        return cls(
+            pin.key,
+            model,
+            processor,
+            device=device,
+            gen=gen,
+            pin=pin,
+            image_longest_edge=image_longest_edge,
+        )
 
     def describe(self) -> dict[str, Any]:
         import torch
 
         params = sum(p.numel() for p in self.model.parameters())
-        return {
+        d = {
             "backend": "transformers",
             "model_key": self.name,
             "repo": self.pin.repo if self.pin else None,
@@ -203,13 +247,22 @@ class HFBackend:
             "generation": self.gen.as_dict(),
             "unanswerable_token_variants": [list(v) for v in self._variants],
         }
+        if self.image_longest_edge is not None:  # absent = the processor's own default
+            d["image_longest_edge"] = self.image_longest_edge
+        return d
 
     def prepare(self, images: list[Image.Image], messages: list[list[dict]]) -> dict:
         """CPU work only (chat template, image resize/tiling, tokenization): thread-safe."""
         proc = self._thread_processor()
         texts = [proc.apply_chat_template(m, add_generation_prompt=True) for m in messages]
         return dict(
-            proc(text=texts, images=[[im] for im in images], return_tensors="pt", padding=True)
+            proc(
+                text=texts,
+                images=[[im] for im in images],
+                return_tensors="pt",
+                padding=True,
+                **self._images_kwargs,
+            )
         )
 
     def _to_device(self, prepared: dict) -> dict:
@@ -273,6 +326,9 @@ class HFBackend:
         return self.run_prepared(self.prepare(images, messages))
 
     def run_prepared(self, prepared: dict) -> list[BatchOutput]:
+        image_token_id = getattr(self.processor, "image_token_id", None)
+        if image_token_id is not None:
+            self.image_tokens.add((prepared["input_ids"] == image_token_id).sum(dim=1).tolist())
         enc = self._to_device(prepared)
         probs = self.p_unanswerable(enc)
         raws = self.generate(enc)
@@ -282,11 +338,41 @@ class HFBackend:
         return [BatchOutput(r, p) for r, p in zip(raws, probs, strict=True)]
 
 
+def _images_kwargs(processor: Any, longest_edge: int | None) -> dict[str, Any]:
+    """Processor kwargs that cap the image's long edge, validated against the processor.
+
+    SmolVLM resizes the long edge up to a multiple of its 512 px tile, then splits it into tiles
+    plus a global view, so only multiples of the tile size are distinct settings (768 gives the
+    same tiles as 1,024). Other model families tile differently and are not supported.
+    """
+    if longest_edge is None:
+        return {}
+    ip = processor.image_processor
+    tile = (getattr(ip, "max_image_size", None) or {}).get("longest_edge")
+    default = getattr(getattr(ip, "size", None), "longest_edge", None)
+    if default is None and isinstance(getattr(ip, "size", None), dict):
+        default = ip.size.get("longest_edge")
+    if tile is None or default is None:
+        raise ValueError(
+            f"{type(ip).__name__} has no SmolVLM-style long-edge tiling; "
+            "--long-edge applies to SmolVLM2 models only"
+        )
+    if longest_edge % tile or not tile <= longest_edge <= default:
+        caps = list(range(tile, default + 1, tile))
+        raise ValueError(f"long edge {longest_edge} px: must be one of {caps} (tile {tile} px)")
+    return {"images_kwargs": {"size": {"longest_edge": longest_edge}}}
+
+
 # --------------------------------------------------------------------------- tiny stand-in
 
 
 def tiny_stand_in(
-    pin: ModelPin, *, device: str = "cpu", gen: GenerationConfig | None = None, seed: int = 0
+    pin: ModelPin,
+    *,
+    device: str = "cpu",
+    gen: GenerationConfig | None = None,
+    seed: int = 0,
+    image_longest_edge: int | None = None,
 ) -> HFBackend:
     """The pinned model's real processor and chat template on a tiny random-weight model.
 
@@ -333,4 +419,5 @@ def tiny_stand_in(
         gen=gen or GenerationConfig(),
         pin=pin,
         stand_in=True,
+        image_longest_edge=image_longest_edge,
     )

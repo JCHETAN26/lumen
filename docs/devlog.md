@@ -2,6 +2,40 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-03: Image resolution probe (Stage 3 prep)
+
+**What the processor actually does** (SmolVLM2-500M's processor at the pinned revision, run on
+CPU): the long edge is rounded *up* to a multiple of the 512 px tile, the image is split into tiles
+plus one global view, 64 tokens each. A 3:4 portrait photo, the usual VizWiz shape, gets 13 / 10 /
+5 / 1 tiles at a 2,048 (default) / 1,536 / 1,024 / 512 px cap, so at the default 832 of ~875 prompt
+tokens are image tokens (not ~1,100, which assumed a square photo). Small photos are upscaled to the
+same grid, so the tile count follows the aspect ratio, not the photo's size. A 768 px cap gives the
+same tiles as 1,024, so the probe arms are 2,048 / 1,536 / 1,024 / 512.
+
+**Rule, fixed 2026-10-03 before any probe result** (`lumen.zeroshot.resolution`): the *best* arm is
+the one with the highest `dev_select` accuracy (exact ties: fewer image tokens). The *chosen* arm is
+the lowest-token resolution (smallest long edge) that is not meaningfully worse than the best: the
+lower bound of the 95% paired bootstrap CI on its accuracy difference from the best is at least
+**-1.0 point** (the margin). AP is reported with its own paired CI but does not decide. This
+replaced a first draft ("highest accuracy wins", 2026-10-01) before any probe run existed: an
+accuracy-equivalent cheaper resolution should win, because image tokens dominate on-device latency.
+
+**What the margin implies at n = 512.** The CI is paired, so its width depends on how many
+questions change score between two resolutions, not on accuracy itself. Roughly, with 0/1 scores a
+lower resolution passes only if its point estimate is close to the best and it changes the outcome
+of at most ~7 of the 512 questions (half-width ≈ 1.96 · 100·√d / n ≤ 1 point at d ≈ 7). VizWiz's
+fractional scores loosen this a little. So the rule will keep the best arm unless a cheaper one
+answers almost identically; that is the intended conservative behavior, recorded here so it isn't
+a surprise. Limitation: zero-shot accuracy is a proxy for how well the *fine-tuned* model uses a
+resolution.
+
+**How:** `baseline --long-edge N` caps the processor's long edge (SmolVLM2-500M/256M only; LFM2.5
+tiles differently and is refused). The cap goes into the predictions header only when set, so the
+default-resolution files already on the Hub stay valid. `resolution_choice` (CPU) re-scores each arm
+from its predictions on the same 512 questions, with paired bootstrap CIs vs 2,048 px; the val run
+at the chosen resolution reads the committed choice (`--long-edge chosen`). Prior cost scales with
+portrait tiles, floored at 0.35x, until the calibration batch measures it.
+
 ## 2026-09-30: Plan for 12 GPU h: prompt choice on dev_select; prefetch on
 
 **Decisions (approved).** (1) Zero-shot prompts are chosen on `dev_select`, a fixed stratified

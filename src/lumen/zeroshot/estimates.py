@@ -17,6 +17,11 @@ inside generate) + up to 16 greedy decode steps. Prefill FLOPs ≈ 2·P_vision·
 | SmolVLM2-2.2B | ≤17 tiles of 384², 81 tok each (~1.4k tokens) | 400M | 1.7B | 29 | 1.55 |
 
 Overhead covers downloading and loading weights plus the one-time CUDA warm-up.
+
+Image resolution (SmolVLM2 only, `--long-edge`): cost is scaled by the number of 512 px tiles a
+3:4 portrait photo (most of VizWiz) gets at each cap, measured with SmolVLM2-500M's processor at
+the pinned revision: 2,048 -> 13 tiles (832 image tokens), 1,536 -> 10, 1,024 -> 5, 512 -> 1. The
+scale is floored, because decoding and CPU preprocessing don't shrink with the image.
 """
 
 from __future__ import annotations
@@ -49,11 +54,33 @@ MODEL_COSTS: dict[str, ModelCost] = {
 }
 
 
-def estimate_run(model_key: str, split: str, prompt_key: str, n_questions: int) -> Estimate:
+DEFAULT_LONG_EDGE = 2048
+PORTRAIT_TILES = {2048: 13, 1536: 10, 1024: 5, 512: 1}
+MIN_RESOLUTION_SCALE = 0.35
+
+
+def resolution_scale(long_edge: int | None) -> float:
+    if long_edge is None:
+        return 1.0
+    if long_edge not in PORTRAIT_TILES:
+        known = list(PORTRAIT_TILES)
+        raise ValueError(f"no cost estimate for long edge {long_edge}; known: {known}")
+    tiles = PORTRAIT_TILES[long_edge] / PORTRAIT_TILES[DEFAULT_LONG_EDGE]
+    return max(MIN_RESOLUTION_SCALE, tiles)
+
+
+def estimate_run(
+    model_key: str,
+    split: str,
+    prompt_key: str,
+    n_questions: int,
+    long_edge: int | None = None,
+) -> Estimate:
     cost = MODEL_COSTS[model_key]
+    suffix = "" if long_edge is None else f":le{long_edge}"
     return prior_estimate(
-        f"baseline:{model_key}:{split}:{prompt_key}",
+        f"baseline:{model_key}:{split}:{prompt_key}{suffix}",
         n_questions,
-        cost.sec_per_question,
+        cost.sec_per_question * resolution_scale(long_edge),
         overhead_s=cost.overhead_s,
     )
