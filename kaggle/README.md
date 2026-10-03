@@ -20,6 +20,7 @@ is the runner:
 | `baseline` | 2 | GPU T4 | Zero-shot baselines: 4 models × 2 prompts on dev, then each model's dev-chosen prompt on val |
 | `baseline --long-edge N` | 3 prep | GPU T4 | Image resolution probe: SmolVLM2-500M on `dev_select` at 1,536 / 1,024 / 512 px |
 | `resolution_choice` | 3 prep | **None** | Pick the resolution from the probe (rule fixed in advance) |
+| `train_speed` | 3 prep | GPU T4 | 200 LoRA steps on `train_fit`: s/step, memory, tokens/s, projected h/epoch |
 | `train`, `eval` | 3 | GPU T4 | LoRA fine-tuning and evaluation (added in Stage 3) |
 
 ## GPU quota guard
@@ -158,6 +159,26 @@ $B --split val --prompt dev-selected --long-edge chosen --gpu-hours-left H
 - **Files:** a capped run is `<split>-<prompt>-le<N>.json` with its own predictions file, whose
   header records the cap; default-resolution runs keep their names and headers. Prompt choice only
   reads default-resolution runs.
+
+## Stage 3 prep: training speed test
+
+```bash
+uv run python kaggle/run_stages.py train_speed --long-edge chosen --dry-run
+uv run python kaggle/run_stages.py train_speed --long-edge chosen --gpu-hours-left H
+```
+
+- 200 optimizer steps of LoRA (rank 16 on the language model's attention + MLP projections; the
+  vision encoder stays frozen) on `train_fit`, batch 4 x 2 accumulation, at the chosen resolution,
+  with the prompt chosen on dev_select. Targets: the most common human answer; `unanswerable` for
+  unanswerable questions (`lumen.train.targets`).
+- fp16 on the T4: frozen base in fp16, LoRA weights in fp32 under autocast, dynamic loss scaling.
+  A non-finite loss skips the step; 10 in a row stop the run (exit 4) with the last good
+  checkpoint kept and the stop recorded. Calibrated after 10 steps; stops cleanly (exit 3) if the
+  rest no longer fits the quota.
+- Prior: ~5.4 s/step at 2,048 px, ~2.1 s at 1,024 (scaled from the measured inference rate), so
+  0.37-0.60 GPU h for the test. The result records s/step (median, p90 after 5 warm-up steps),
+  peak memory, tokens/s, and projected hours per epoch (2,309 steps for 18,471 examples).
+- Checkpoints go to `/kaggle/working/lumen-checkpoints/` only; the adapter isn't published.
 
 ## 4. What to download, and where it goes
 

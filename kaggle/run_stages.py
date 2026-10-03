@@ -9,8 +9,9 @@ Stages (each writes result JSON under results/ and copies it to the download fol
     mac_sample  package the ~300 pinned val images + their annotations for the Mac   (CPU only)
     storage_check  confirm HF_TOKEN can write to the private predictions + adapter repos
     baseline_summary  one line per baseline result: accuracy, CI, AP, s/question, GPU hours
-    resolution_choice  pick SmolVLM2-500M's image resolution from the dev_select probe runs
+    resolution_choice  pick SmolVLM2-500M's image resolution from the dev probe runs
                 (CPU only; reads the probe's predictions)
+    train_speed  a short LoRA run on train_fit: s/step, memory, tokens/s, projected h/epoch (GPU)
 
     baseline    zero-shot baselines (Stage 2) for the pinned models on dev or val        (GPU)
                 --dry-run prints the GPU-hour plan without loading anything
@@ -37,6 +38,7 @@ import argparse
 import hashlib
 import io
 import json
+import math
 import os
 import shutil
 import sys
@@ -84,6 +86,13 @@ PREDICTIONS_DIR = Path(
     )
 )
 RESULTS = REPO_ROOT / "results"
+# LoRA checkpoints: local only (gitignored off-Kaggle); adapters are published to the private Hub.
+CHECKPOINT_DIR = Path(
+    os.environ.get(
+        "LUMEN_CHECKPOINT_DIR",
+        "/kaggle/working/lumen-checkpoints" if ON_KAGGLE else REPO_ROOT / "checkpoints",
+    )
+)
 SPLIT_FILES = {
     "train_fit": "train_fit.txt",
     "dev": "dev.txt",
@@ -1066,6 +1075,189 @@ def _resolve(long_edge: int) -> int | None:
     return None if long_edge == DEFAULT_LONG_EDGE else long_edge
 
 
+# ---------------------------------------------------------------------------- train_speed
+
+
+def _train_fit_records(pins, *, limit: int | None) -> tuple[list[Record], Path]:
+    """train_fit (official train minus the committed dev IDs), sorted, and the train image zip."""
+    ann = fetch_pinned(pins.files["annotations"], DATA_DIR).path
+    ids = set(read_ids(SPLITS_DIR / SPLIT_FILES["train_fit"]))
+    records = [
+        r
+        for r in parse_annotations(_annotation_json(ann, "train"), "train")
+        if r["question_id"] in ids
+    ]
+    if len(records) != len(ids):
+        raise SystemExit(f"train_fit: {len(ids) - len(records)} committed IDs not in train.json")
+    dev = set(read_ids(SPLITS_DIR / SPLIT_FILES["dev"]))
+    if dev & ids:
+        raise SystemExit("train_fit and dev overlap: the committed splits are broken")
+    records.sort(key=lambda r: r["question_id"])
+    if limit is not None:
+        records = records[:limit]
+    return records, fetch_pinned(pins.files["train_images"], DATA_DIR).path
+
+
+def _train_model(args: argparse.Namespace, long_edge: int | None):
+    """(model, processor, device) for training: the pinned SmolVLM2-500M in fp16 on the T4, or the
+    tiny random-weight stand-in (fp32) for pipeline checks."""
+    import torch
+
+    from lumen.zeroshot.backends import tiny_stand_in
+
+    pin = load_pins().models[PROBE_MODEL]
+    device = args.device or ("cuda" if torch.cuda.is_available() else None)
+    if device is None:
+        raise SystemExit("no CUDA GPU: attach a T4, or pass --device cpu (only for --stand-in)")
+    if args.stand_in:
+        b = tiny_stand_in(pin, device=device, image_longest_edge=long_edge)
+        return b.model, b.processor, device
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+
+    processor = AutoProcessor.from_pretrained(pin.repo, revision=pin.revision)
+    dtype = torch.float16 if device == "cuda" else torch.float32  # T4: no bf16
+    model = AutoModelForImageTextToText.from_pretrained(
+        pin.repo, revision=pin.revision, dtype=dtype
+    )
+    return model.to(device), processor, device
+
+
+def cmd_train_speed(args: argparse.Namespace) -> int:
+    """A short LoRA run on train_fit to measure training cost before Stage 3 is budgeted.
+
+    Same model, data, prompt (the one chosen on dev_select), targets, and image resolution as the
+    real training runs; LoRA settings are the TrainConfig defaults (chosen on dev later). Records
+    s/step (median and p90 after warm-up), peak GPU memory, tokens/s, and projected hours per
+    epoch. Starts fresh each time; the adapter is not published.
+    """
+    from lumen.budget import BudgetExceeded, calibrated_estimate, check_budget
+    from lumen.train.data import TrainCollator, TrainDataset, examples_from_targets
+    from lumen.train.estimates import estimate_train
+    from lumen.train.loop import StopTraining, TrainConfig, attach_lora, parameter_counts, train
+    from lumen.train.targets import TARGET_VERSION, build_targets
+
+    long_edge = _resolve_long_edge(args.long_edge, [PROBE_MODEL])
+    prompt, selection = _dev_selected_prompt(PROBE_MODEL)
+
+    cfg = TrainConfig(
+        prompt_key=prompt,
+        image_longest_edge=long_edge,
+        micro_batch=args.micro_batch,
+        grad_accum=args.grad_accum,
+        schedule_steps=max(args.steps, 1000),
+        checkpoint_every=args.steps,  # only the final state; this run is a measurement
+        fp16=not args.stand_in,
+        dataloader_workers=0 if args.stand_in else 2,
+    )
+    name = "train_speed" + ("" if long_edge is None else f"-le{long_edge}")
+    prior = estimate_train(f"{name}:{PROBE_MODEL}", args.steps, cfg.batch_size, long_edge)
+    res = f"{long_edge or DEFAULT_LONG_EDGE} px"
+    print(
+        f"\n== train_speed | {PROBE_MODEL} | {res} | prompt={prompt} | {args.steps} steps x "
+        f"{cfg.batch_size} | prior {prior.hours:.2f} GPU h ({prior.sec_per_item:.2f} s/step)"
+    )
+    if args.dry_run:
+        return 0
+    used = (time.monotonic() - SESSION_START) / 3600
+    left = None if args.gpu_hours_left is None else args.gpu_hours_left - used
+    if not args.stand_in:
+        try:
+            check_budget(prior, left)
+        except BudgetExceeded as e:
+            print(f"NOT STARTED (budget): {e}")
+            return EXIT_BUDGET
+
+    records, zip_path = _train_fit_records(load_pins(), limit=args.limit)
+    pairs, target_stats = build_targets(records, include_unanswerable=cfg.include_unanswerable)
+    model, processor, device = make_train_model(args, cfg.image_longest_edge)
+    model = attach_lora(model, cfg)
+    dataset = TrainDataset(examples_from_targets(pairs), ZipImages(zip_path))
+    collate = TrainCollator(processor, cfg.prompt_key, image_longest_edge=cfg.image_longest_edge)
+    ckpt_dir = CHECKPOINT_DIR / "train_speed" / name
+    shutil.rmtree(ckpt_dir, ignore_errors=True)  # a measurement: always from step 0
+    calibration: dict = {}
+
+    def on_step(step: int, report) -> None:
+        if calibration or step < args.calibration_steps or step >= args.steps:
+            return
+        seconds = sum(report.step_seconds)
+        cal = calibrated_estimate(prior, step, seconds)
+        rest = calibrated_estimate(
+            estimate_train(prior.stage, args.steps - step, cfg.batch_size, cfg.image_longest_edge),
+            step,
+            seconds,
+        )
+        calibration.update(estimate=cal.as_dict(), measured_steps=step, seconds=round(seconds, 2))
+        print(f"   calibrated: {seconds / step:.2f} s/step -> {cal.hours:.2f} GPU h total")
+        if not args.stand_in and left is not None:
+            try:
+                check_budget(rest, left - (time.monotonic() - SESSION_START) / 3600 + used)
+            except BudgetExceeded as e:
+                print(f"STOPPING (budget): {e}")
+                raise StopTraining("budget") from e
+
+    t0 = time.monotonic()
+    report = train(
+        model,
+        dataset,
+        collate,
+        cfg,
+        max_steps=args.steps,
+        checkpoint_dir=ckpt_dir,
+        device=device,
+        on_step=on_step,
+    )
+    hours = (time.monotonic() - t0) / 3600
+    summary = report.summary()
+    spq = summary["sec_per_step_median"]
+    steps_per_epoch = math.ceil(len(dataset) / cfg.batch_size)
+    payload = {
+        "stage": "train_speed",
+        "status": report.status,
+        "smoke": bool(args.stand_in or args.limit is not None),
+        "model": {
+            "model_key": PROBE_MODEL,
+            "stand_in": bool(args.stand_in),
+            "parameters": parameter_counts(model),
+            "device": device,
+        },
+        "config": cfg.as_dict(),
+        "prompt_selection": selection,
+        "targets": {"version": TARGET_VERSION, **target_stats.as_dict()},
+        "train_fit_examples": len(dataset),
+        "train": summary,
+        "projection": {
+            "steps_per_epoch": steps_per_epoch,
+            "hours_per_epoch": None if spq is None else round(steps_per_epoch * spq / 3600, 3),
+            "basis": "median s/step after warm-up x steps per epoch; excludes model load and eval",
+        },
+        "gpu_hours": {
+            "prior_estimate": prior.as_dict(),
+            "calibration": calibration or None,
+            "actual_this_run": round(hours, 4),
+        },
+        "adapter": "not published (speed test); checkpoints stay on local disk",
+    }
+    sub = "smoke" if payload["smoke"] else ""
+    result = write_result(RESULTS / PREP_DIR / sub / f"{name}.json", payload)
+    collect(result, str(Path(PREP_DIR) / sub))
+    print(
+        f"   {report.status}: {report.final_step} steps, median {spq or float('nan'):.2f} s/step, "
+        f"peak {report.peak_memory_gib or float('nan'):.1f} GiB, "
+        f"~{payload['projection']['hours_per_epoch']} h/epoch, loss "
+        f"{summary['loss_first']} -> {summary['loss_last']}"
+    )
+    if report.status == "stopped_non_finite":
+        return EXIT_NON_FINITE
+    if report.status.startswith("stopped:"):
+        return EXIT_BUDGET
+    return 0
+
+
+# Tests replace this to run the stage with a tiny model.
+make_train_model = _train_model
+
+
 # -------------------------------------------------------------------------- storage_check
 
 
@@ -1148,6 +1340,23 @@ def main() -> int:
     b.add_argument("--device", choices=["cuda", "cpu"], default=None)
     b.add_argument("--dry-run", action="store_true", help="print the GPU-hour plan and exit")
     b.set_defaults(fn=cmd_baseline)
+    t = sub.add_parser("train_speed", help="short LoRA run: training cost per step and epoch")
+    t.add_argument("--steps", type=int, default=200)
+    t.add_argument("--micro-batch", type=int, default=4)
+    t.add_argument("--grad-accum", type=int, default=2)
+    t.add_argument("--calibration-steps", type=int, default=10)
+    t.add_argument(
+        "--long-edge",
+        type=_long_edge_arg,
+        required=True,
+        help="image long edge in px (512/1024/1536/2048), or 'chosen' (resolution_choice)",
+    )
+    t.add_argument("--gpu-hours-left", type=float, default=None)
+    t.add_argument("--limit", type=int, default=None, help="smoke run on the first N train_fit")
+    t.add_argument("--stand-in", action="store_true", help="tiny random-weight model (pipeline)")
+    t.add_argument("--device", choices=["cuda", "cpu"], default=None)
+    t.add_argument("--dry-run", action="store_true", help="print the GPU-hour prior and exit")
+    t.set_defaults(fn=cmd_train_speed)
     args = parser.parse_args()
     return args.fn(args)
 

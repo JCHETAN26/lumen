@@ -103,6 +103,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(run_stages, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(run_stages, "_BACKENDS", {})
     monkeypatch.setattr(run_stages, "PREDICTIONS_DIR", tmp_path / "predictions")
+    monkeypatch.setattr(run_stages, "CHECKPOINT_DIR", tmp_path / "checkpoints")
     hub_api = FakeHubApi()
     monkeypatch.setattr(run_stages, "make_hub_api", lambda: hub_api)
     return tmp_path

@@ -2,6 +2,36 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-03: Stage 3 training code and the speed test
+
+**Targets: the most common human answer** (VizWiz convention; exact ties alphabetical), and the
+literal `unanswerable` for unanswerable questions. A metric-aware alternative was drafted and
+rejected before any training: choose whichever human answer the official metric scores highest.
+Forms of one answer ("two" / "2") always tie under it, because the prediction is normalized, so it
+can only differ from the majority by switching to a *different* minority answer (6x "the dog" vs 4x
+"cat" picks "cat", since "the dog" is scored as "dog" against raw ground truths). That teaches
+wrong content for metric credit. Instead, each run counts the targets the metric can't credit
+(`zero_score_targets`) and tied majorities, so the quirk's effect on training is measured.
+
+**Loss on the answer only.** Labels cover the answer tokens and the `<end_of_utterance>` that ends
+the turn; prompt, image, and padding tokens are -100. The answer's start is located by the chat
+template's generation marker in the token ids, and a test on the real processor checks it equals
+the length of the prompt encoded alone, i.e. exactly where generation starts at inference.
+
+**LoRA and fp16.** Rank 16, alpha 32, dropout 0.05 on the language model's q/k/v/o and MLP
+projections (the regex is anchored on `text_model`: the vision encoder has q/k/v_proj too, and a
+check refuses any trainable weight outside the language model). These are defaults for the speed
+test; rank, targets, and learning rate are chosen on dev in Stage 3. The base stays fp16; LoRA
+weights are fp32 because GradScaler can't unscale fp16 gradients. Gradient accumulation weights
+each micro-batch's mean loss equally (not by token count). Checkpoints are written only after good
+steps, atomically, with optimizer/scaler/scheduler/RNG state; the data order is a pure function of
+(seed, epoch), and a test checks that a resumed run's weights equal an uninterrupted run's.
+
+**Tested on CPU only so far.** The loop, NaN guard, resume, and the whole `train_speed` stage run
+in tests with a tiny random-weight stand-in in fp32. The fp16 autocast + loss-scaling path cannot
+run on CPU; the T4 speed test is its first real run, and its overflow and non-finite counts are in
+the result. `peft==0.21.2` is added to the GPU group.
+
 ## 2026-10-03: Image resolution probe (Stage 3 prep)
 
 **What the processor actually does** (SmolVLM2-500M's processor at the pinned revision, run on

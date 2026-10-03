@@ -33,3 +33,6 @@ kaggle.json
 # Stored in a private Hugging Face dataset repo instead; see src/lumen/hub.py.
 *.predictions.jsonl
 /predictions/
+
+# LoRA training checkpoints (adapters are published only to the private Hub repo, pinned by SHA)
+/checkpoints/
