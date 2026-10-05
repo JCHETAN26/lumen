@@ -49,16 +49,17 @@ fi
 uv --version
 
 echo "== dependencies (from uv.lock, exactly) =="
-# CPU sessions (data, mac_sample) need only the core package. With a GPU attached, also install
-# the pinned CUDA 12.6 PyTorch stack (the `gpu` group) into /kaggle/temp.
+# CPU sessions get the core package plus the Hub client (the `hub` group: rebuild_baseline and
+# resolution_choice read the private Hub). With a GPU attached, also install the pinned CUDA 12.6
+# PyTorch stack (the `gpu` group, which includes `hub`) into /kaggle/temp.
 if command -v nvidia-smi >/dev/null 2>&1; then
   uv sync --frozen --no-default-groups --group gpu
 else
-  uv sync --frozen --no-default-groups
+  uv sync --frozen --no-default-groups --group hub
 fi
 
 echo "== verify =="
-uv run python -c "import lumen, sklearn, PIL; print('lumen', lumen.__version__, 'ok')"
+uv run python -c "import lumen, sklearn, PIL, huggingface_hub; print('lumen', lumen.__version__, 'ok; huggingface_hub', huggingface_hub.__version__)"
 if command -v nvidia-smi >/dev/null 2>&1; then
   uv run python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'available', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"
 fi
@@ -67,7 +68,7 @@ uv run python -c "import importlib.util as u; s = u.find_spec('sitecustomize'); 
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 else
-  echo "no GPU attached (correct for the data and mac_sample stages)"
+  echo "no GPU attached (correct for data, mac_sample, rebuild_baseline, resolution_choice)"
 fi
 
 ENV_FILE="/kaggle/working/lumen-env.sh"
