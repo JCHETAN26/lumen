@@ -128,7 +128,11 @@ class FakeHubApi:
         assert repo_type in ("dataset", "model")
         if not self.exists:
             raise FileNotFoundError(repo_id)
-        return type("Info", (), {"private": self.private})()
+        return type("Info", (), {"private": self.private, "sha": f"{self.commits:040x}"})()
+
+    def list_repo_files(self, repo_id: str, repo_type: str, revision: str) -> list[str]:
+        assert repo_type == "dataset" and len(revision) == 40
+        return list(self.files)
 
     def whoami(self) -> dict:
         return {"auth": {"accessToken": {"role": self.role}}}

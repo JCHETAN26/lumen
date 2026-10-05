@@ -9,6 +9,8 @@ Stages (each writes result JSON under results/ and copies it to the download fol
     mac_sample  package the ~300 pinned val images + their annotations for the Mac   (CPU only)
     storage_check  confirm HF_TOKEN can write to the private predictions + adapter repos
     baseline_summary  one line per baseline result: accuracy, CI, AP, s/question, GPU hours
+    rebuild_baseline  re-create lost baseline result files from the predictions in the private
+                Hugging Face dataset (CPU only; re-scores, never re-answers)
     resolution_choice  pick SmolVLM2-500M's image resolution from the dev probe runs
                 (CPU only; reads the probe's predictions)
     train_speed  a short LoRA run on train_fit: s/step, memory, tokens/s, projected h/epoch (GPU)
@@ -328,7 +330,7 @@ def cmd_mac_sample(args: argparse.Namespace) -> int:
 BASELINE_DIR = "baseline"
 PREFETCH_ON = 2  # workers used when prefetching is on (`auto` compares this against 0)
 AB_BATCHES = 4  # batches per arm of the automatic prefetch on/off comparison
-EXIT_BUDGET, EXIT_NON_FINITE, EXIT_STORAGE = 3, 4, 5
+EXIT_BUDGET, EXIT_NON_FINITE, EXIT_STORAGE, EXIT_REBUILD = 3, 4, 5, 6
 SESSION_START = time.monotonic()
 
 
@@ -346,9 +348,11 @@ def _dev_select_ids(dev_records: list[Record], pins) -> list[str]:
     return ids
 
 
-def _load_split(split: str, pins, *, limit: int | None) -> tuple[list[Record], Path]:
+def _load_split(
+    split: str, pins, *, limit: int | None, images: bool = True
+) -> tuple[list[Record], Path | None]:
     """Records and image zip for dev / dev_select (committed dev IDs, from official train) or
-    val (all)."""
+    val (all). With images=False only the annotations (1.7 MB) are fetched, not the image zip."""
     ann = fetch_pinned(pins.files["annotations"], DATA_DIR).path
     if split in ("dev", "dev_select"):
         ids = set(read_ids(SPLITS_DIR / SPLIT_FILES["dev"]))
@@ -373,7 +377,7 @@ def _load_split(split: str, pins, *, limit: int | None) -> tuple[list[Record], P
     records.sort(key=lambda r: r["question_id"])
     if limit is not None:
         records = records[:limit]
-    return records, fetch_pinned(zip_pin, DATA_DIR).path
+    return records, fetch_pinned(zip_pin, DATA_DIR).path if images else None
 
 
 def _run_kind(args: argparse.Namespace) -> str:
@@ -829,6 +833,10 @@ def _latest_results(root: Path) -> list[Path]:
     return sorted(p for _, p in latest.values())
 
 
+def _num(x: float | None) -> float:
+    return float("nan") if x is None else x
+
+
 def cmd_baseline_summary(args: argparse.Namespace) -> int:
     """One line per baseline result: what ran, how it scored, how fast, and what it cost."""
     root = RESULTS / BASELINE_DIR
@@ -862,10 +870,148 @@ def cmd_baseline_summary(args: argparse.Namespace) -> int:
             f"{ans.get('average_precision', float('nan')):>7.2f}"
             f"{100 * m.get('said_unanswerable_rate', float('nan')):>8.1f}"
             f"{spq if spq is not None else float('nan'):>7.3f}"
-            f"{d['gpu_hours']['actual_this_run']:>7.2f}"
+            f"{_num(d['gpu_hours']['actual_this_run']):>7.2f}"
             f"{d.get('image_longest_edge') or DEFAULT_LONG_EDGE:>6}  {stored}"
         )
     return 0
+
+
+# ----------------------------------------------------------------------- rebuild_baseline
+
+
+def fetch_from_hub(repo: str, path: str, revision: str) -> Path:
+    """Tests replace this; on Kaggle it downloads from the private Hub dataset (HF_TOKEN)."""
+    from lumen import hub
+
+    return hub.fetch(repo, path, revision)
+
+
+_SPLIT_ORDER = {"dev_select": 0, "dev": 1, "val": 2}  # val last: it records the dev-chosen prompt
+
+
+def cmd_rebuild_baseline(args: argparse.Namespace) -> int:
+    """Re-create baseline result files lost with a Kaggle session, from the private Hub predictions.
+
+    Lists `baseline/<model>/*.predictions.jsonl` at one exact dataset commit and downloads each
+    file at that commit. A file is refused unless its header matches the pinned model revision,
+    the current prompt templates, and the current extractor, and it answers exactly its split's
+    questions. Accepted files are scored with the official metric, as the original runs were.
+    GPU hours, timing, and batch settings can't be recovered and are recorded as lost. Existing
+    result files are never touched. Loading dev_select regenerates dev_select.txt (to the
+    download folder), checked against any committed copy.
+    """
+    from lumen import hub
+    from lumen.zeroshot.extract import EXTRACTOR_VERSION
+    from lumen.zeroshot.harness import read_predictions, score_predictions
+    from lumen.zeroshot.prompts import PROMPT_VERSION
+
+    warn_if_gpu_attached("rebuild_baseline")
+    pins = load_pins()
+    model = args.model
+    if model not in pins.models:
+        raise SystemExit(f"unknown model {model!r}; pinned: {sorted(pins.models)}")
+    pin = pins.models[model]
+    api, repo = make_hub_api(), hub.predictions_repo()
+    try:
+        revision, paths = hub.list_files(api, repo, f"{BASELINE_DIR}/{model}/")
+    except hub.HubError as e:
+        print(f"NOT STARTED (predictions storage): {e}")
+        return EXIT_STORAGE
+    files = [p for p in paths if p.endswith(".predictions.jsonl")]
+    print(f"{repo} @ {revision[:12]}: {len(files)} prediction file(s) for {model}")
+    if not files:
+        print("nothing to rebuild from: these runs must be rerun")
+        return EXIT_REBUILD
+
+    def order(path: str) -> tuple[int, str]:
+        return (_SPLIT_ORDER.get(Path(path).name.split("-")[0], 9), path)
+
+    run_dir = _run_dir(model, "")
+    failed = 0
+    for path in sorted(files, key=order):
+        name = Path(path).name.removesuffix(".predictions.jsonl")
+        if _result_files(run_dir, name):
+            print(f"  {name}: a result already exists; left as is")
+            continue
+        local = fetch_from_hub(repo, path, revision)
+        header, preds = read_predictions(local)
+        problems = []
+        if header is None:
+            problems.append("no header line")
+        else:
+            m = header["model"]
+            split, prompt_key = header["split"], header["prompt_key"]
+            long_edge = m.get("image_longest_edge")
+            if _run_name(split, prompt_key, long_edge) != name:
+                problems.append(f"header says {_run_name(split, prompt_key, long_edge)!r}")
+            if m.get("model_key") != model or m.get("revision") != pin.revision:
+                problems.append(f"model {m.get('model_key')}@{m.get('revision')} is not the pin")
+            if m.get("stand_in"):
+                problems.append("a stand-in run")
+            if (
+                header.get("prompt_template") != PROMPTS.get(prompt_key)
+                or header.get("prompt_version") != PROMPT_VERSION
+                or header.get("extractor_version") != EXTRACTOR_VERSION
+            ):
+                problems.append("prompt or extractor differs from the current code")
+        if not problems:
+            records, _ = _load_split(split, pins, limit=None, images=False)
+            want = {r["question_id"] for r in records}
+            missing, extra = want - set(preds), set(preds) - want
+            if missing or extra:
+                problems.append(f"incomplete: {len(missing)} questions missing, {len(extra)} extra")
+        selection = None
+        if not problems and split == "val":
+            try:
+                selection = _dev_selected_prompt(model)[1]
+            except SystemExit as e:  # e.g. a dev_select file was refused above
+                problems.append(f"no dev prompt choice to check it against ({e})")
+            else:
+                if selection["chosen"] != prompt_key:
+                    problems.append(
+                        f"val used {prompt_key!r} but dev chose {selection['chosen']!r}"
+                    )
+        if problems:
+            failed += 1
+            print(f"  {name}: REFUSED ({'; '.join(problems)})")
+            continue
+        payload = {
+            "stage": "baseline",
+            "status": "completed",
+            "error": None,
+            "smoke": False,
+            "rebuilt": {
+                "from": "predictions in the private Hugging Face dataset",
+                "reason": "the original result files were lost with the Kaggle session's disk",
+                "lost": "GPU hours, timing, batch size, prefetch, image-token counts, model "
+                "description beyond the predictions header",
+            },
+            "model": {**header["model"], "generation": header["generation"]},
+            "split": split,
+            "prompt": header,
+            "prompt_selection": selection,
+            "image_longest_edge": long_edge,
+            "image_tokens": None,
+            "batch_size": None,
+            "prefetch_workers": None,
+            "prefetch_ab": None,
+            "gpu_hours": {"prior_estimate": None, "calibration": None, "actual_this_run": None},
+            "run": None,
+            "metrics": score_predictions(records, preds),
+            "predictions": {
+                **hub.pointer(repo, path, revision, local),
+                "stored": "private Hugging Face dataset",
+            },
+        }
+        result = write_result(run_dir / f"{name}.json", payload)
+        collect(result, str(Path(BASELINE_DIR) / model))
+        acc = payload["metrics"]["accuracy"]
+        print(
+            f"  {name}: rebuilt, n={payload['metrics']['n']}, accuracy {acc['overall']:.2f} "
+            f"[{acc['ci95']['low']:.2f}, {acc['ci95']['high']:.2f}], "
+            f"AP {payload['metrics']['answerability']['average_precision']:.2f}"
+        )
+    return EXIT_REBUILD if failed else 0
 
 
 # ---------------------------------------------------------------------- resolution_choice
@@ -972,7 +1118,7 @@ def cmd_resolution_choice(args: argparse.Namespace) -> int:
         if d["status"] != "completed":
             raise SystemExit(f"{f.name}: status {d['status']}; rerun it to completion first")
 
-    records, _ = _load_split(PROBE_SPLIT, load_pins(), limit=None)
+    records, _ = _load_split(PROBE_SPLIT, load_pins(), limit=None, images=False)
     ids = [r["question_id"] for r in records]
     for f, d in docs.values():
         if d["metrics"]["question_ids_sha256"] != question_ids_sha256(ids):
@@ -1305,6 +1451,11 @@ def main() -> int:
     sub.add_parser(
         "resolution_choice", help="pick the image resolution from the dev probe (CPU)"
     ).set_defaults(fn=cmd_resolution_choice)
+    rb = sub.add_parser(
+        "rebuild_baseline", help="re-create lost baseline results from Hub predictions (CPU)"
+    )
+    rb.add_argument("--model", default="smolvlm2-500m")
+    rb.set_defaults(fn=cmd_rebuild_baseline)
     b = sub.add_parser("baseline", help="zero-shot baselines (Stage 2)")
     b.add_argument("--model", nargs="+", default=["all"], help="pinned model keys, or 'all'")
     b.add_argument("--split", choices=["dev", "dev_select", "val"], required=True)

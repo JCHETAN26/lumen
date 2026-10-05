@@ -2,6 +2,27 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-05: SmolVLM2-500M result files lost with the Kaggle session; rebuilt from the Hub
+
+**What went wrong.** The SmolVLM2-500M runs (prompt choice on dev_select, then val) completed on
+Kaggle and uploaded their predictions to the private Hub dataset, but the result files and the
+generated `dev_select.txt` were never downloaded. The session's disk was then wiped:
+`/kaggle/working/lumen-results/`, the local predictions, and the clone's `results/` were all gone
+(checked 2026-10-05), and the download on hand was an older Stage 1 one, identical to what was
+already committed. The numbers in the planning notes (dev_select: abstain 28.79 vs plain 24.92; val
+32.07 [30.7, 33.3], AP 52.67) came from notebook output, not from a committed result.
+
+**Recovery, no GPU.** New CPU stage `rebuild_baseline` re-creates the result files from the Hub
+predictions (details in kaggle/README.md). Results are deterministic given the predictions, so the
+metrics are exactly what the original runs computed; what can't be recovered (GPU hours, timing,
+batch settings) is recorded as lost, never estimated. If the Hub files turn out to be missing or
+incomplete, the two runs are rerun (~1.5 GPU h).
+
+**Also:** `resolution_choice` and the rebuild load annotations only (`_load_split(images=False)`),
+so neither re-downloads or re-verifies the 11 GB train zip.
+
+**Lesson:** download `lumen-results` at the end of every session, before anything else.
+
 ## 2026-10-03: Stage 3 training code and the speed test
 
 **Targets: the most common human answer** (VizWiz convention; exact ties alphabetical), and the

@@ -18,6 +18,7 @@ is the runner:
 | `data` | 1 | **None** | Download + verify pinned VizWiz files (~15 GB), validate annotations against the zips, build dev split + Mac sample IDs |
 | `mac_sample` | 1 | **None** | Package the 300 pinned val images + annotations for the Mac |
 | `baseline` | 2 | GPU T4 | Zero-shot baselines: 4 models × 2 prompts on dev, then each model's dev-chosen prompt on val |
+| `rebuild_baseline` | 2 | **None** | Re-create lost baseline result files from the Hub predictions (re-scores, never re-answers) |
 | `baseline --long-edge N` | 3 prep | GPU T4 | Image resolution probe: SmolVLM2-500M on `dev_select` at 1,536 / 1,024 / 512 px |
 | `resolution_choice` | 3 prep | **None** | Pick the resolution from the probe (rule fixed in advance) |
 | `train_speed` | 3 prep | GPU T4 | 200 LoRA steps on `train_fit`: s/step, memory, tokens/s, projected h/epoch |
@@ -126,6 +127,13 @@ uv run python kaggle/run_stages.py baseline_summary
   runs keep them on Kaggle's disk only. `lumen.hub.download(pointer)` fetches one at its pinned
   revision and verifies its sha256. If an upload fails, the stage exits 5 and a rerun re-uploads
   without re-answering anything.
+
+**If result files are lost** (the session's disk was wiped before the download): run
+`rebuild_baseline --model <key>` with Accelerator: None. It lists the model's prediction files in
+the private Hub dataset at one exact commit, refuses any whose header doesn't match the pinned
+model, the current prompts and extractor, or that doesn't answer its whole split, re-scores the
+rest with the official metric, and writes results marked `rebuilt` (GPU hours and timing are
+recorded as lost). It also regenerates `dev_select.txt`. Download right after every session.
 
 ## Stage 3 prep: image resolution
 

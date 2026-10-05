@@ -101,3 +101,25 @@ def test_download_verifies_sha256(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert hub.download(good) == f
     with pytest.raises(hub.HubError, match="sha256"):
         hub.download({**good, "sha256": "0" * 64})
+
+
+def test_list_files_reads_one_exact_commit() -> None:
+    api = FakeHubApi()
+    api.files = {"baseline/m/a.predictions.jsonl": b"", "baseline/n/b.predictions.jsonl": b""}
+    api.commits = 7
+    sha, files = hub.list_files(api, "me/preds", "baseline/m/")
+    assert sha == f"{7:040x}" and files == ["baseline/m/a.predictions.jsonl"]
+    with pytest.raises(hub.HubError, match="not private"):
+        hub.list_files(FakeHubApi(private=False), "me/preds", "baseline/")
+
+
+def test_fetch_refuses_a_branch_name() -> None:
+    with pytest.raises(hub.HubError, match="full commit SHA"):
+        hub.fetch("me/preds", "baseline/m/a.predictions.jsonl", "main")
+
+
+def test_pointer_for_an_existing_file(tmp_path) -> None:
+    f = tmp_path / "x.predictions.jsonl"
+    f.write_text('{"_header": {}}\n{"question_id": "q"}\n')
+    p = hub.pointer("me/preds", "baseline/m/x.predictions.jsonl", "a" * 40, f)
+    assert p["lines"] == 2 and len(p["sha256"]) == 64 and p["revision"] == "a" * 40

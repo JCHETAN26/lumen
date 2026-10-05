@@ -110,19 +110,52 @@ def upload(api: Any, repo_id: str, local: Path, path_in_repo: str, message: str)
     }
 
 
-def download(pointer: dict[str, Any], token: str | None = None) -> Path:
-    """Fetch a stored file at its pinned revision and verify its sha256 (e.g. for Stage 4)."""
+def list_files(api: Any, repo_id: str, prefix: str) -> tuple[str, list[str]]:
+    """(commit SHA, paths under `prefix`) of the private dataset repo, read at one exact commit
+    (never a branch name), so everything fetched afterwards comes from the same revision."""
+    info = api.repo_info(repo_id, repo_type="dataset")
+    if not getattr(info, "private", False):
+        raise HubError(f"{repo_id} is not private; refusing to use it")
+    sha = getattr(info, "sha", None)
+    if not sha or len(sha) != 40:
+        raise HubError(f"{repo_id}: the Hub returned no commit SHA")
+    files = api.list_repo_files(repo_id, repo_type="dataset", revision=sha)
+    return sha, sorted(f for f in files if f.startswith(prefix))
+
+
+def fetch(repo_id: str, path: str, revision: str, token: str | None = None) -> Path:
+    """Download one file of the private dataset at an exact commit; returns the local path."""
+    if len(revision) != 40:
+        raise HubError(f"fetch needs a full commit SHA, not {revision!r}")
     from huggingface_hub import hf_hub_download
 
-    path = Path(
+    return Path(
         hf_hub_download(
-            pointer["repo"],
-            pointer["path"],
+            repo_id,
+            path,
             repo_type="dataset",
-            revision=pointer["revision"],
+            revision=revision,
             token=token or os.environ.get("HF_TOKEN"),
         )
     )
+
+
+def pointer(repo_id: str, path_in_repo: str, revision: str, local: Path) -> dict[str, Any]:
+    """The pointer results record for a file already on the Hub at `revision`."""
+    rows = sum(1 for line in local.read_text(encoding="utf-8").splitlines() if line.strip())
+    return {
+        "repo": repo_id,
+        "repo_type": "dataset",
+        "path": path_in_repo,
+        "revision": revision,
+        "sha256": _sha256(local),
+        "lines": rows,
+    }
+
+
+def download(pointer: dict[str, Any], token: str | None = None) -> Path:
+    """Fetch a stored file at its pinned revision and verify its sha256 (e.g. for Stage 4)."""
+    path = fetch(pointer["repo"], pointer["path"], pointer["revision"], token)
     if _sha256(path) != pointer["sha256"]:
         raise HubError(f"{pointer['path']}@{pointer['revision'][:8]}: sha256 mismatch")
     return path
