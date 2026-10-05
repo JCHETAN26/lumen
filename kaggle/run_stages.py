@@ -845,7 +845,7 @@ def cmd_baseline_summary(args: argparse.Namespace) -> int:
         print(f"no baseline results under {root}")
         return 0
     head = (
-        f"{'kind':<9}{'model':<16}{'split':<6}{'prompt':<9}{'status':<10}{'n':>5}"
+        f"{'kind':<9}{'model':<16}{'split':<11}{'prompt':<9}{'status':<10}{'n':>5}"
         f"{'acc':>7}{'95% CI':>15}{'AP':>7}{'unans%':>8}{'s/q':>7}{'GPU h':>7}{'edge':>6}  stored"
     )
     print(head)
@@ -863,7 +863,7 @@ def cmd_baseline_summary(args: argparse.Namespace) -> int:
         ci_txt = f"[{ci['low']:.1f}, {ci['high']:.1f}]" if ci else ""
         print(
             f"{kind:<9}{f.parent.name:<16}"
-            f"{d['split']:<6}{d['prompt']['prompt_key']:<9}{d['status']:<10}"
+            f"{d['split']:<11}{d['prompt']['prompt_key']:<9}{d['status']:<10}"
             f"{m.get('n', d.get('answered', 0)):>5}"
             f"{acc.get('overall', float('nan')):>7.2f}"
             f"{ci_txt:>15}"

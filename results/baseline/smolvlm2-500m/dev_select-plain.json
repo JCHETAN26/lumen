@@ -1,0 +1,159 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-05T20:50:30+00:00",
+    "git": {
+      "commit": "5bf25bea164ffe1e14cb834a13425b6c436f3d6d",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.18.48+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        0.39,
+        0.15,
+        0.11
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.20GHz",
+      "memory_gib": 31.3,
+      "gpus": [],
+      "kaggle": true
+    },
+    "python": "3.13.13",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": null,
+      "transformers": null,
+      "peft": null,
+      "trl": null,
+      "accelerate": null,
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "rebuild_baseline",
+      "--model",
+      "smolvlm2-500m"
+    ]
+  },
+  "stage": "baseline",
+  "status": "completed",
+  "error": null,
+  "smoke": false,
+  "rebuilt": {
+    "from": "predictions in the private Hugging Face dataset",
+    "reason": "the original result files were lost with the Kaggle session's disk",
+    "lost": "GPU hours, timing, batch size, prefetch, image-token counts, model description beyond the predictions header"
+  },
+  "model": {
+    "model_key": "smolvlm2-500m",
+    "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+    "stand_in": false,
+    "backend": "transformers",
+    "generation": {
+      "max_new_tokens": 16,
+      "do_sample": false,
+      "num_beams": 1,
+      "repetition_penalty": 1.0
+    }
+  },
+  "split": "dev_select",
+  "prompt": {
+    "model": {
+      "model_key": "smolvlm2-500m",
+      "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+      "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+      "stand_in": false,
+      "backend": "transformers"
+    },
+    "generation": {
+      "max_new_tokens": 16,
+      "do_sample": false,
+      "num_beams": 1,
+      "repetition_penalty": 1.0
+    },
+    "prompt_key": "plain",
+    "prompt_template": "{question}\nAnswer the question using a single word or phrase.",
+    "prompt_version": "v1",
+    "extractor_version": "v1",
+    "split": "dev_select"
+  },
+  "prompt_selection": null,
+  "image_longest_edge": null,
+  "image_tokens": null,
+  "batch_size": null,
+  "prefetch_workers": null,
+  "prefetch_ab": null,
+  "gpu_hours": {
+    "prior_estimate": null,
+    "calibration": null,
+    "actual_this_run": null
+  },
+  "run": null,
+  "metrics": {
+    "n": 512,
+    "question_ids_sha256": "dbacb7de83e3e9e96fcd2745c40c30dea792ae5493f00be779b0fd5534ef1816",
+    "accuracy": {
+      "overall": 24.921875,
+      "overall_official": 24.92,
+      "ci95": {
+        "low": 21.81591796875,
+        "high": 28.45703125,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "per_answer_type": {
+        "number": 37.14,
+        "other": 30.87,
+        "unanswerable": 4.86,
+        "yes/no": 52.61
+      },
+      "per_answer_type_n": {
+        "number": 7,
+        "other": 344,
+        "unanswerable": 138,
+        "yes/no": 23
+      },
+      "answerable_only": 32.32620320855615,
+      "unanswerable_only": 4.855072463768115
+    },
+    "answerability": {
+      "average_precision": 42.31084428458228,
+      "average_precision_official": 42.31,
+      "ap_ci95": {
+        "low": 35.386509522595404,
+        "high": 50.942036795996096,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "f1_at_0_5_official": 0.0,
+      "positive_rate": 0.26953125,
+      "oracle_threshold_this_split": {
+        "threshold": 7.529536102712786e-05,
+        "f1": 49.86876640419948
+      }
+    },
+    "said_unanswerable_rate": 0.0,
+    "abstained_by_rule_rate": 0.0
+  },
+  "predictions": {
+    "repo": "cjitendr/lumen-predictions",
+    "repo_type": "dataset",
+    "path": "baseline/smolvlm2-500m/dev_select-plain.predictions.jsonl",
+    "revision": "60513543f012f7c532b60af7be2a3b78b5cfa245",
+    "sha256": "14b6baf289c521e2e8507342b65281bde9df37217561320867475fd6164aa342",
+    "lines": 513,
+    "stored": "private Hugging Face dataset"
+  }
+}
