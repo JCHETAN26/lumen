@@ -108,10 +108,23 @@ left this week):
 
 **Done when:** four models × chosen prompt on val, with CIs and hardware recorded.
 
-## Stage 3: LoRA fine-tuning and answerability detection
+## Stage 3: LoRA fine-tuning and answerability detection (code done and tested; GPU runs not started)
 
-- LoRA (PEFT) on SmolVLM2-500M's language model, vision encoder frozen at first (unfreezing
-  the connector is an ablation). Targets and rank chosen on dev.
+Status 2026-10-06: resolution chosen (1,024 px, a documented deviation); `train`,
+`finetune_eval`, `finetune_choice`, `finetune_compare` built and tested on CPU with the stand-in.
+Waiting on: the probe results committed, the matched zero-shot val baseline at 1,024 px (S3.4),
+and the measured training speed (S3.5).
+
+**Pre-registered sweep (2026-10-06, before any fine-tuning result):** learning rate 1e-4 / 2e-4 /
+4e-4, rank 16, alpha 32, a 2-epoch linear schedule, the default seed; every epoch evaluated on all
+of dev; the (run, epoch) with the highest dev accuracy is chosen (`lumen.train.selection.RULE`).
+Then 2 more seeds and the no-unanswerable ablation, trained to the chosen epoch, go to val.
+Rough cost at the 1,024 px prior (~2.1 s/step, 2,309 steps/epoch): ~8 GPU h for the sweep, ~1 h of
+dev evals, 4-8 h of replicates, ~1.5 h of val evals; rescaled by the speed test before starting.
+
+- LoRA (PEFT) on SmolVLM2-500M's language model, vision encoder frozen (unfreezing the connector
+  would be a further ablation; not in this round). Learning rate and epoch chosen on dev; rank is
+  fixed at 16 to fit the GPU budget (not swept, stated as a limitation).
 - Training target: the most common human answer (the VizWiz convention; "unanswerable" for
   unanswerable questions), so the model learns to abstain in VizWiz's own vocabulary.
 - **fp16 on the T4:** dynamic loss scaling (`torch.amp.GradScaler`); a NaN/Inf guard that skips

@@ -2,6 +2,41 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-06: Stage 3 code: training runs, evaluation, and the dev choice rule
+
+**Sweep and rule, fixed before any fine-tuning result** (`lumen.train.selection.RULE`): learning
+rate 1e-4 / 2e-4 / 4e-4 at rank 16 (alpha 32), a 2-epoch linear schedule, the default seed. Every
+sweep run's epoch-1 and epoch-2 adapters are evaluated on all 2,052 dev questions; the (run, epoch)
+with the highest official dev accuracy is chosen (ties: AP, then fewer steps). Accuracy decides
+because it is VizWiz's headline metric and "unanswerable" is a real VizWiz answer the model is
+trained to give. The resolution probe showed accuracy can reward abstaining, so each candidate's
+credit from real answers vs from "unanswerable" is reported next to it. Rank is not swept (budget);
+stated as a limitation.
+
+**Replicates and ablation.** Two more seeds and the no-unanswerable ablation re-train the chosen
+config. `--stop-after-epoch k` trains the first k epochs of the same 2-epoch schedule, so a
+replicate of "epoch 1" sees exactly the chosen run's learning rates. Only these runs may go to val:
+`finetune_eval --split val` refuses any other config or epoch.
+
+**Answerability threshold.** Chosen per run on its own dev predictions (max F1, unanswerable
+positive) and applied unchanged to val, labeled "F1 at the dev threshold" next to the official F1
+at 0.5.
+
+**Sessions end; runs don't.** Kaggle wipes the disk between sessions (this lost the baseline
+results once). Training now uploads the full resumable state to the private adapter repo every
+250 steps, and each epoch's adapter at the epoch's end; a new session restores the checkpoint after
+checking the run's spec hash. A run name is bound to one spec, so a resumed run can't silently
+continue with different settings. Tested with the stand-in: train one epoch, wipe the disk, resume
+from the (fake) Hub, finish epoch 2.
+
+**Fine-tuned predictions** use the same backend, prompt, decoding, extractor, and P(unanswerable)
+as the zero-shot runs (the adapter is merged into the fp16 base), and their header records the
+adapter, so they can't be mixed with another model's. `finetune_compare` pairs every system on
+the same val questions against SmolVLM2-500M zero-shot at the same 1,024 px.
+
+**Not yet run:** everything above needs the speed test first (S3.5); the sweep's cost (~8 GPU h at
+the prior rate) is rescaled from its measured s/step before any run starts.
+
 ## 2026-10-05: Resolution probe: the rule picked 512 px; overridden to 1,024 px (deviation)
 
 **Probe** (SmolVLM2-500M zero-shot, abstain prompt, all 2,052 dev questions;

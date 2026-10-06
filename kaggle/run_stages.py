@@ -14,12 +14,19 @@ Stages (each writes result JSON under results/ and copies it to the download fol
     resolution_choice  pick SmolVLM2-500M's image resolution from the dev probe runs
                 (CPU only; reads the probe's predictions)
     train_speed  a short LoRA run on train_fit: s/step, memory, tokens/s, projected h/epoch (GPU)
+    train       LoRA fine-tuning on train_fit (Stage 3; GPU); resumable across sessions through
+                checkpoints in the private adapter repo; publishes each epoch's adapter
+    finetune_eval  one run's epoch adapter on dev (all sweep epochs; picks its F1 threshold) or
+                val (only the dev-chosen config and its replicates)                     (GPU)
+    finetune_choice  pick the config and epoch on dev (lumen.train.selection)      (CPU only)
+    finetune_compare  val table: fine-tuned seeds vs the matched zero-shot baseline, paired,
+                and the no-unanswerable ablation                                   (CPU only)
 
     baseline    zero-shot baselines (Stage 2) for the pinned models on dev or val        (GPU)
                 --dry-run prints the GPU-hour plan without loading anything
                 --long-edge N caps the image's long edge (SmolVLM2; the resolution probe)
 
-Later stages: train and eval (Stage 3). Every GPU stage goes through the quota guard in
+Every GPU stage goes through the quota guard in
 lumen.budget. The final test evaluation is sealed (lumen.eval.test_seal) and needs
 --final-test-evaluation.
 
@@ -42,6 +49,7 @@ import io
 import json
 import math
 import os
+import re
 import shutil
 import sys
 import tarfile
@@ -660,7 +668,10 @@ def _baseline_one(
     else:
         payload["answered"] = len(preds)
     payload["predictions"], storage_error = _store_predictions(
-        pred_path, model_key, split, prompt_key, smoke=smoke or status != "completed"
+        pred_path,
+        f"{BASELINE_DIR}/{model_key}/{pred_path.name}",
+        f"{model_key} {split} {prompt_key} predictions",
+        smoke=smoke or status != "completed",
     )
     result = write_result(run_dir / f"{name}.json", payload)
     collect(result, str(Path(BASELINE_DIR) / kind / model_key))
@@ -689,7 +700,7 @@ def _baseline_one(
 
 
 def _store_predictions(
-    pred_path: Path, model_key: str, split: str, prompt_key: str, *, smoke: bool
+    pred_path: Path, hub_path: str, message: str, *, smoke: bool
 ) -> tuple[dict, str | None]:
     """Upload a completed run's predictions to the private Hub repo; return (pointer, error).
 
@@ -709,8 +720,8 @@ def _store_predictions(
             make_hub_api(),
             hub.predictions_repo(),
             pred_path,
-            f"{BASELINE_DIR}/{model_key}/{pred_path.name}",
-            f"{model_key} {split} {prompt_key} predictions",
+            hub_path,
+            message,
         )
     except Exception as e:  # recorded, never swallowed: the stage exits nonzero
         return {**local, "stored": "upload failed", "error": f"{type(e).__name__}: {e}"}, str(e)
@@ -1440,6 +1451,982 @@ def cmd_train_speed(args: argparse.Namespace) -> int:
 make_train_model = _train_model
 
 
+# ---------------------------------------------------------------------------------- train
+
+FINETUNE_DIR = "finetune"
+CHECKPOINT_META = "lumen_checkpoint.json"  # written into a checkpoint before it is uploaded
+ADAPTER_META = "lumen_adapter.json"  # written into each published epoch adapter
+_RUN_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+# Headroom over the speed test's median s/step when it replaces the prior (p90 was ~10% above).
+MEASURED_STEP_HEADROOM = 1.1
+
+
+def _run_name_arg(value: str) -> str:
+    if not _RUN_NAME.match(value) or value in ("smoke", "choice", "comparison"):
+        raise argparse.ArgumentTypeError(
+            "a run name: lowercase letters, digits, '.', '_', '-' (e.g. lr2e-4-s1)"
+        )
+    return value
+
+
+def _finetune_kind(args: argparse.Namespace) -> str:
+    """Stand-in and limited runs are smoke runs: kept apart, never uploaded, never chosen."""
+    return "smoke" if args.stand_in or args.limit is not None else ""
+
+
+def _finetune_root(kind: str) -> Path:
+    return RESULTS / FINETUNE_DIR / kind
+
+
+def _measured_sec_per_step(long_edge: int | None, batch_size: int) -> tuple[float, str] | None:
+    """The speed test's median s/step at this resolution and batch, if it has run."""
+    name = "train_speed" + ("" if long_edge is None else f"-le{long_edge}")
+    for f in reversed(_result_files(RESULTS / PREP_DIR, name)):
+        d = json.loads(f.read_text())
+        spq = (d.get("train") or {}).get("sec_per_step_median")
+        if (
+            d["status"] == "completed"
+            and not d["smoke"]
+            and d["config"]["effective_batch_size"] == batch_size
+            and spq
+        ):
+            return float(spq), str(f.relative_to(REPO_ROOT))
+    return None
+
+
+def _train_estimate(run: str, steps: int, cfg) -> tuple[object, str]:
+    from lumen.budget import prior_estimate
+    from lumen.train.estimates import TRAIN_OVERHEAD_S, estimate_train
+
+    measured = _measured_sec_per_step(cfg.image_longest_edge, cfg.batch_size)
+    if measured is None:
+        est = estimate_train(f"train:{run}", steps, cfg.batch_size, cfg.image_longest_edge)
+        return est, "prior (lumen.train.estimates; no speed test at this resolution and batch)"
+    sps, source = measured
+    est = prior_estimate(
+        f"train:{run}", steps, sps * MEASURED_STEP_HEADROOM, overhead_s=TRAIN_OVERHEAD_S
+    )
+    return est, f"speed test {source} (median x {MEASURED_STEP_HEADROOM})"
+
+
+def _train_spec(cfg, epochs: int, steps_per_epoch: int, records: list[Record]) -> dict:
+    """Everything that determines what a run learns. A run name is bound to one spec: resuming or
+    re-running a name with a different spec is refused."""
+    from lumen.train.selection import NOT_IN_SPEC
+    from lumen.train.targets import TARGET_VERSION
+    from lumen.zeroshot.harness import question_ids_sha256
+    from lumen.zeroshot.prompts import PROMPT_VERSION
+
+    pin = load_pins().models[PROBE_MODEL]
+    return {
+        "model": {"model_key": PROBE_MODEL, "repo": pin.repo, "revision": pin.revision},
+        "config": {k: v for k, v in cfg.as_dict().items() if k not in NOT_IN_SPEC},
+        "epochs": epochs,
+        "steps_per_epoch": steps_per_epoch,
+        "max_steps": epochs * steps_per_epoch,
+        "train_fit_ids_sha256": question_ids_sha256([r["question_id"] for r in records]),
+        "target_version": TARGET_VERSION,
+        "prompt_version": PROMPT_VERSION,
+    }
+
+
+def fetch_model_file(repo: str, path: str, revision: str) -> Path:
+    """Tests replace this; on Kaggle it downloads one file of the private adapter repo."""
+    from lumen import hub
+
+    return hub.fetch(repo, path, revision, repo_type="model")
+
+
+def _step_of(checkpoint: Path) -> int:
+    return int(checkpoint.name.split("-")[1])
+
+
+def _hub_run_files(api, run: str) -> tuple[str, list[str]]:
+    from lumen import hub
+
+    return hub.list_files(api, hub.adapter_repo(), f"runs/{run}/", "model")
+
+
+def _restore_checkpoint_from_hub(api, run: str, spec_sha: str, ckpt_root: Path) -> Path | None:
+    """A new Kaggle session starts with an empty disk: fetch the run's last uploaded checkpoint."""
+    from lumen import hub
+
+    revision, paths = _hub_run_files(api, run)
+    meta_path = f"runs/{run}/checkpoint/{CHECKPOINT_META}"
+    if meta_path not in paths:
+        return None
+    meta = json.loads(fetch_model_file(hub.adapter_repo(), meta_path, revision).read_text())
+    if meta["spec_sha256"] != spec_sha:
+        raise SystemExit(
+            f"run {run!r} on the Hub was trained with a different spec: pick a new run name"
+        )
+    dest = ckpt_root / f"step-{meta['step']:07d}"
+    pointer = {
+        "repo": hub.adapter_repo(),
+        "repo_type": "model",
+        "path": f"runs/{run}/checkpoint",
+        "revision": revision,
+        "files": meta["files"],
+    }
+    hub.download_folder(pointer, dest, fetch_file=fetch_model_file)
+    (dest / CHECKPOINT_META).write_text(json.dumps(meta, indent=1))
+    print(f"   resumed from the Hub: {run} step {meta['step']} (@{revision[:12]})")
+    return dest
+
+
+def _with_meta(folder: Path, meta_name: str, meta: dict) -> dict:
+    """Write `meta` (plus the sha256 of every other file) into `folder`; return it."""
+    from lumen import hub
+
+    (folder / meta_name).unlink(missing_ok=True)
+    meta = {**meta, "files": hub.folder_digest(folder)}
+    (folder / meta_name).write_text(json.dumps(meta, indent=1))
+    return meta
+
+
+def _publish(api, local: Path, path_in_repo: str, message: str, smoke: bool) -> dict:
+    from lumen import hub
+
+    if smoke:
+        return {
+            "stored": "local only (smoke run; not uploaded)",
+            "local": str(local),
+            "files": hub.folder_digest(local),
+        }
+    pointer = hub.upload_folder(api, hub.adapter_repo(), local, path_in_repo, message)
+    return {**pointer, "stored": "private Hugging Face model repo"}
+
+
+def cmd_train(args: argparse.Namespace) -> int:
+    """LoRA fine-tuning of SmolVLM2-500M on train_fit (Stage 3), resumable across Kaggle sessions.
+
+    One run = one spec (config, epochs, data, model pin) under one name. The LR schedule spans all
+    `--epochs`; `--stop-after-epoch` trains only the first k of them (seed and ablation replicates
+    of a config chosen at an earlier epoch). At each epoch's end the adapter is published to the
+    private adapter repo (`runs/<run>/epoch-<k>/`), and every `--checkpoint-every` steps the full
+    resumable state goes to `runs/<run>/checkpoint/`, so a new session continues where the last
+    stopped. Each session writes its own result (`results/finetune/<run>/train.json`, .1, ...).
+    """
+    from lumen import hub
+    from lumen.budget import BudgetExceeded, calibrated_estimate, check_budget, prior_estimate
+    from lumen.train.data import TrainCollator, TrainDataset, examples_from_targets
+    from lumen.train.loop import (
+        StopTraining,
+        TrainConfig,
+        attach_lora,
+        latest_checkpoint,
+        parameter_counts,
+        train,
+    )
+    from lumen.train.selection import spec_sha256
+    from lumen.train.targets import TARGET_VERSION, build_targets
+
+    run, kind = args.run, _finetune_kind(args)
+    smoke = kind != ""
+    long_edge = _resolve_long_edge(args.long_edge, [PROBE_MODEL])
+    prompt, selection = _dev_selected_prompt(PROBE_MODEL)
+    records, zip_path = _train_fit_records(load_pins(), limit=args.limit)
+    include_unans = not args.no_unanswerable
+    pairs, target_stats = build_targets(records, include_unanswerable=include_unans)
+    defaults = TrainConfig()
+    micro, accum = args.micro_batch, args.grad_accum
+    steps_per_epoch = math.ceil(len(pairs) / (micro * accum))
+    cfg = TrainConfig(
+        prompt_key=prompt,
+        image_longest_edge=long_edge,
+        include_unanswerable=include_unans,
+        lora_r=args.lora_r,
+        lora_alpha=args.lora_alpha if args.lora_alpha is not None else 2 * args.lora_r,
+        lr=args.lr,
+        warmup_steps=args.warmup_steps,
+        schedule_steps=args.epochs * steps_per_epoch,
+        micro_batch=micro,
+        grad_accum=accum,
+        fp16=not args.stand_in,
+        checkpoint_every=args.checkpoint_every,
+        seed=args.seed if args.seed is not None else defaults.seed,
+        dataloader_workers=0 if args.stand_in else 2,
+    )
+    stop_epoch = args.stop_after_epoch or args.epochs
+    if not 1 <= stop_epoch <= args.epochs:
+        raise SystemExit(f"--stop-after-epoch must be between 1 and --epochs ({args.epochs})")
+    spec = _train_spec(cfg, args.epochs, steps_per_epoch, records)
+    spec_sha = spec_sha256(spec)
+    target_step = stop_epoch * steps_per_epoch
+
+    res_dir = _finetune_root(kind) / run
+    for f in _result_files(res_dir, "train"):
+        if json.loads(f.read_text())["spec_sha256"] != spec_sha:
+            raise SystemExit(
+                f"run {run!r} already has results with a different spec ({f.name}): a run name "
+                "is bound to one config; pick a new name"
+            )
+    ckpt_root = CHECKPOINT_DIR / "train" / kind / run
+    spec_file = ckpt_root / "run.json"
+    if spec_file.exists() and json.loads(spec_file.read_text())["spec_sha256"] != spec_sha:
+        raise SystemExit(f"{ckpt_root} holds run {run!r} with a different spec; pick a new name")
+
+    api = None
+    if not smoke and not args.dry_run:
+        try:
+            api = make_hub_api()
+            hub.preflight(api, hub.adapter_repo(), "model")
+        except hub.HubError as e:
+            print(f"NOT STARTED (adapter storage): {e}")
+            return EXIT_STORAGE
+    local = latest_checkpoint(ckpt_root)
+    if local is None and api is not None:
+        local = _restore_checkpoint_from_hub(api, run, spec_sha, ckpt_root)
+    start = _step_of(local) if local is not None else 0
+    remaining = max(0, target_step - start)
+    prior, prior_source = _train_estimate(run, remaining, cfg)
+    res = f"{long_edge or DEFAULT_LONG_EDGE} px"
+    print(
+        f"\n== train | {run} | {res} | prompt={prompt} | lr {cfg.lr:g} | r {cfg.lora_r} | seed "
+        f"{cfg.seed} | unanswerable {'in' if include_unans else 'OUT (ablation)'} | "
+        f"{len(pairs)} examples | {steps_per_epoch} steps/epoch x {args.epochs} epochs"
+        + (f" (stopping after epoch {stop_epoch})" if stop_epoch < args.epochs else "")
+        + f"\n   step {start} -> {target_step}: {prior.hours:.2f} GPU h ({prior_source})"
+    )
+    if args.dry_run:
+        return 0
+    used = (time.monotonic() - SESSION_START) / 3600
+    left = None if args.gpu_hours_left is None else args.gpu_hours_left - used
+    if not args.stand_in and remaining:
+        try:
+            check_budget(prior, left)
+        except BudgetExceeded as e:
+            print(f"NOT STARTED (budget): {e}")
+            return EXIT_BUDGET
+
+    ckpt_root.mkdir(parents=True, exist_ok=True)
+    spec_file.write_text(json.dumps({"run": run, "spec_sha256": spec_sha, "spec": spec}, indent=1))
+    published_epochs: set[int] = set()
+    if api is not None:
+        _, paths = _hub_run_files(api, run)
+        published_epochs = {
+            int(p.split("/")[2].removeprefix("epoch-"))
+            for p in paths
+            if p.endswith(f"/{ADAPTER_META}") and p.split("/")[2].startswith("epoch-")
+        }
+    else:
+        published_epochs = {
+            int(d.name.removeprefix("epoch-"))
+            for d in ckpt_root.glob("epoch-*")
+            if (d / ADAPTER_META).exists()
+        }
+    behind = [e for e in range(1, stop_epoch + 1) if e * steps_per_epoch < start]
+    lost = [e for e in behind if e not in published_epochs]
+    if lost:
+        raise SystemExit(
+            f"run {run!r}: epoch adapter(s) {lost} were never published and the run is past them; "
+            "they can't be recovered from this checkpoint. Start a new run name."
+        )
+    if not remaining and all(e in published_epochs for e in range(1, stop_epoch + 1)):
+        print(f"   {run}: trained to step {target_step}, every epoch published; nothing to do")
+        return 0
+
+    model, processor, device = make_train_model(args, cfg.image_longest_edge)
+    model = attach_lora(model, cfg)
+    dataset = TrainDataset(examples_from_targets(pairs), ZipImages(zip_path))
+    collate = TrainCollator(processor, cfg.prompt_key, image_longest_edge=cfg.image_longest_edge)
+
+    calibration: dict = {}
+    synced: dict = {"path": str(local) if local is not None else None, "pointer": None}
+    upload_errors: list[str] = []
+    t0 = time.monotonic()
+    session_limit_s = args.session_hours * 3600
+
+    def sync_checkpoint(path_str: str | None) -> None:
+        if smoke or path_str is None or path_str == synced["path"]:
+            return
+        path = Path(path_str)
+        _with_meta(
+            path,
+            CHECKPOINT_META,
+            {"run": run, "step": _step_of(path), "spec_sha256": spec_sha},
+        )
+        try:
+            step = _step_of(path)
+            synced["pointer"] = _publish(
+                api, path, f"runs/{run}/checkpoint", f"{run}: checkpoint step {step}", False
+            )
+            synced["path"] = path_str
+            print(f"   checkpoint step {step} -> Hub @{synced['pointer']['revision'][:12]}")
+        except Exception as e:  # keep training; the next checkpoint retries; recorded
+            upload_errors.append(f"step {_step_of(path)}: {type(e).__name__}: {e}")
+            print(f"   WARNING: checkpoint upload failed ({e}); retrying at the next checkpoint")
+
+    def on_step(step: int, report) -> None:
+        sync_checkpoint(report.last_good_checkpoint)
+        if not calibration and report.steps_done >= args.calibration_steps and step < target_step:
+            seconds = sum(report.step_seconds)
+            cal = calibrated_estimate(prior, report.steps_done, seconds)
+            rest = calibrated_estimate(
+                prior_estimate(prior.stage, target_step - step, prior.sec_per_item, 0.0),
+                report.steps_done,
+                seconds,
+            )
+            calibration.update(
+                estimate=cal.as_dict(), measured_steps=report.steps_done, seconds=round(seconds, 2)
+            )
+            rate = seconds / report.steps_done
+            print(f"   calibrated: {rate:.2f} s/step -> {cal.hours:.2f} GPU h for this session")
+            if not args.stand_in and left is not None:
+                try:
+                    check_budget(rest, left - (time.monotonic() - SESSION_START) / 3600 + used)
+                except BudgetExceeded as e:
+                    print(f"STOPPING (budget): {e}")
+                    raise StopTraining("budget") from e
+        if time.monotonic() - SESSION_START > session_limit_s and step < target_step:
+            print(f"STOPPING (session limit {args.session_hours:g} h): the next session resumes")
+            raise StopTraining("session limit")
+
+    status, segments, epochs_out = "completed", [], []
+    for epoch in range(1, stop_epoch + 1):
+        end = epoch * steps_per_epoch
+        if end <= start and epoch in published_epochs:
+            continue
+        report = train(
+            model,
+            dataset,
+            collate,
+            cfg,
+            max_steps=end,
+            checkpoint_dir=ckpt_root,
+            device=device,
+            on_step=on_step,
+        )
+        if report.steps_done:
+            segments.append({"epoch": epoch, **report.summary()})
+        if report.status != "completed":
+            status = report.status
+            sync_checkpoint(report.last_good_checkpoint)
+            break
+        last = latest_checkpoint(ckpt_root)
+        if last is None or _step_of(last) != end:
+            raise RuntimeError(f"epoch {epoch}: no checkpoint at step {end}")
+        sync_checkpoint(str(last))
+        epoch_dir = ckpt_root / f"epoch-{epoch}"
+        shutil.rmtree(epoch_dir, ignore_errors=True)
+        shutil.copytree(last / "adapter", epoch_dir)
+        meta = _with_meta(
+            epoch_dir,
+            ADAPTER_META,
+            {"run": run, "epoch": epoch, "step": end, "spec_sha256": spec_sha, "spec": spec},
+        )
+        try:
+            pointer = _publish(
+                api, epoch_dir, f"runs/{run}/epoch-{epoch}", f"{run}: epoch {epoch} adapter", smoke
+            )
+        except Exception as e:
+            status = "stopped:adapter upload failed"
+            upload_errors.append(f"epoch {epoch}: {type(e).__name__}: {e}")
+            print(f"STORAGE FAILED: epoch {epoch} adapter: {e}; the rerun publishes it")
+            break
+        published_epochs.add(epoch)
+        epochs_out.append(
+            {"epoch": epoch, "step": end, "adapter": pointer, "adapter_files": meta["files"]}
+        )
+        where = pointer.get("revision", "local")[:12]
+        print(f"   epoch {epoch} (step {end}) adapter published @{where}")
+
+    hours = (time.monotonic() - t0) / 3600
+    final = latest_checkpoint(ckpt_root)
+    final_step = _step_of(final) if final is not None else 0
+    steps_s = [s for seg in segments for s in [seg["sec_per_step_median"]] if s]
+    payload = {
+        "stage": "train",
+        "status": status,
+        "smoke": smoke,
+        "run": run,
+        "spec": spec,
+        "spec_sha256": spec_sha,
+        "config": cfg.as_dict(),
+        "stop_after_epoch": stop_epoch,
+        "model": {
+            "model_key": PROBE_MODEL,
+            "stand_in": bool(args.stand_in),
+            "parameters": parameter_counts(model),
+            "device": device,
+        },
+        "prompt_selection": selection,
+        "targets": {"version": TARGET_VERSION, **target_stats.as_dict()},
+        "session": {"start_step": start, "final_step": final_step, "target_step": target_step},
+        "segments": segments,
+        "epochs_published": epochs_out,
+        "checkpoint": synced["pointer"],
+        "upload_errors": upload_errors,
+        "gpu_hours": {
+            "prior_estimate": prior.as_dict(),
+            "prior_source": prior_source,
+            "calibration": calibration or None,
+            "actual_this_run": round(hours, 4),
+        },
+        "sec_per_step_median_by_epoch": steps_s,
+    }
+    result = write_result(res_dir / "train.json", payload)
+    collect(result, str(Path(FINETUNE_DIR) / kind / run))
+    losses = [seg["loss_last"] for seg in segments]
+    print(f"   {status}: step {start} -> {final_step} of {target_step}; last losses {losses}")
+    if status == "stopped_non_finite":
+        return EXIT_NON_FINITE
+    if status == "stopped:adapter upload failed":
+        return EXIT_STORAGE
+    if status.startswith("stopped:"):
+        return EXIT_BUDGET
+    return 0
+
+
+# ------------------------------------------------------------------------- finetune_eval
+
+
+def _epoch_adapter(run: str, epoch: int, kind: str) -> tuple[dict, dict]:
+    """(spec, adapter pointer) of a run's published epoch adapter: from the run's train results
+    (committed, or written earlier this session), else from the adapter repo's listing."""
+    for f in reversed(_result_files(_finetune_root(kind) / run, "train")):
+        d = json.loads(f.read_text())
+        for e in d["epochs_published"]:
+            if e["epoch"] == epoch:
+                return d["spec"], {**e["adapter"], "step": e["step"]}
+    if kind:
+        raise SystemExit(f"smoke run {run!r} has no epoch-{epoch} adapter: train it first")
+    from lumen import hub
+
+    revision, paths = _hub_run_files(make_hub_api(), run)
+    meta_path = f"runs/{run}/epoch-{epoch}/{ADAPTER_META}"
+    if meta_path not in paths:
+        raise SystemExit(f"run {run!r} has no published epoch-{epoch} adapter (train it first)")
+    raw = fetch_model_file(hub.adapter_repo(), meta_path, revision).read_bytes()
+    meta = json.loads(raw)
+    files = {**meta["files"], ADAPTER_META: hashlib.sha256(raw).hexdigest()}
+    pointer = {
+        "repo": hub.adapter_repo(),
+        "repo_type": "model",
+        "path": f"runs/{run}/epoch-{epoch}",
+        "revision": revision,
+        "files": files,
+        "stored": "private Hugging Face model repo",
+        "step": meta["step"],
+    }
+    return meta["spec"], pointer
+
+
+def _adapter_dir(run: str, epoch: int, kind: str, pointer: dict) -> Path:
+    """A local copy of the adapter whose files match the pointer's sha256s exactly."""
+    from lumen import hub
+
+    local = CHECKPOINT_DIR / "train" / kind / run / f"epoch-{epoch}"
+    if local.is_dir() and hub.folder_digest(local) == pointer["files"]:
+        return local
+    if pointer.get("revision") is None:
+        raise SystemExit(f"{local}: missing or changed, and the smoke adapter was never uploaded")
+    dest = CHECKPOINT_DIR / "adapters" / run / f"epoch-{epoch}"
+    if dest.is_dir() and hub.folder_digest(dest) == pointer["files"]:
+        return dest
+    return hub.download_folder(pointer, dest, fetch_file=fetch_model_file)
+
+
+def _finetuned_backend(args: argparse.Namespace, spec: dict, adapter_dir: Path, adapter: dict):
+    """The pinned base with the LoRA adapter merged in (fp16 on the T4), behind the same HFBackend
+    the zero-shot runs use: same prompt handling, decoding, extractor, and P(unanswerable)."""
+    import torch
+    from peft import PeftModel
+
+    from lumen.zeroshot.backends import GenerationConfig, HFBackend, tiny_stand_in
+
+    pin = load_pins().models[PROBE_MODEL]
+    if spec["model"]["revision"] != pin.revision:
+        raise SystemExit("the adapter was trained on a different base revision than the pin")
+    device = args.device or ("cuda" if torch.cuda.is_available() else None)
+    if device is None:
+        raise SystemExit("no CUDA GPU: attach a T4, or pass --device cpu (only for --stand-in)")
+    long_edge = spec["config"]["image_longest_edge"]
+    if args.stand_in:
+        b = tiny_stand_in(pin, device=device, image_longest_edge=long_edge)
+        base, processor = b.model, b.processor
+    else:
+        from transformers import AutoModelForImageTextToText, AutoProcessor
+
+        processor = AutoProcessor.from_pretrained(pin.repo, revision=pin.revision)
+        base = AutoModelForImageTextToText.from_pretrained(
+            pin.repo, revision=pin.revision, dtype=torch.float16 if device == "cuda" else None
+        ).to(device)
+    model = PeftModel.from_pretrained(base, str(adapter_dir)).merge_and_unload()
+    return HFBackend(
+        PROBE_MODEL,
+        model.to(device),
+        processor,
+        device=device,
+        gen=GenerationConfig(),
+        pin=pin,
+        stand_in=bool(args.stand_in),
+        image_longest_edge=long_edge,
+        adapter=adapter,
+    )
+
+
+# Tests replace this to run the stage with a fake backend.
+make_finetuned_backend = _finetuned_backend
+
+
+def _newest(run_dir: Path, name: str) -> dict | None:
+    files = _result_files(run_dir, name)
+    return json.loads(files[-1].read_text()) if files else None
+
+
+def _choice(kind: str) -> dict:
+    files = _result_files(_finetune_root(kind), "choice")
+    if not files:
+        raise SystemExit(
+            "no fine-tuning choice yet: evaluate the sweep runs on dev, then run finetune_choice "
+            "(val is only for the dev-chosen config)"
+        )
+    return json.loads(files[-1].read_text())
+
+
+def cmd_finetune_eval(args: argparse.Namespace) -> int:
+    """A fine-tuned adapter (one run, one epoch) on dev or val, scored exactly like the baselines.
+
+    dev: every sweep epoch is evaluated here, and the F1 threshold for answerability is chosen on
+    these predictions. val: only for the config and epoch finetune_choice picked on dev (its
+    seed and ablation replicates included), with the threshold from the same run's dev result.
+    """
+    import numpy as np
+
+    from lumen.budget import BudgetExceeded, calibrated_estimate, check_budget
+    from lumen.eval.answerability import best_f1_threshold, f1_at_threshold
+    from lumen.eval.vizwiz_metric import evaluate_accuracy
+    from lumen.train.selection import family
+    from lumen.zeroshot.backends import NonFiniteOutput
+    from lumen.zeroshot.estimates import MODEL_COSTS, estimate_run
+    from lumen.zeroshot.extract import UNANSWERABLE
+    from lumen.zeroshot.harness import read_predictions, run_predictions, score_predictions
+    from lumen.zeroshot.resolution import abstention_breakdown
+
+    run, epoch, split, kind = args.run, args.epoch, args.split, _finetune_kind(args)
+    smoke = kind != ""
+    spec, pointer = _epoch_adapter(run, epoch, kind)
+    prompt = spec["config"]["prompt_key"]
+    long_edge = spec["config"]["image_longest_edge"]
+    run_dir = _finetune_root(kind) / run
+    name = f"{split}-e{epoch}"
+    threshold, choice_ref = None, None
+    if split == "val":
+        choice = _choice(kind)
+        chosen = choice["chosen"]
+        if family(spec) != family(chosen["spec"]) or epoch != chosen["epoch"]:
+            raise SystemExit(
+                f"val is only for the config and epoch chosen on dev ({chosen['run']} epoch "
+                f"{chosen['epoch']}, and its seed/ablation replicates): {run} epoch {epoch} isn't"
+            )
+        dev = _newest(run_dir, f"dev-e{epoch}")
+        if dev is None or dev["status"] != "completed":
+            raise SystemExit(f"{run} epoch {epoch}: evaluate it on dev first (its F1 threshold)")
+        threshold = dev["threshold_choice"]["threshold"]
+        choice_ref = {"run": chosen["run"], "epoch": chosen["epoch"], "rule": choice["rule"]}
+
+    pins = load_pins()
+    records, zip_path = _load_split(split, pins, limit=args.limit)
+    pred_path = PREDICTIONS_DIR / FINETUNE_DIR / kind / run / f"{name}.predictions.jsonl"
+    _, done = read_predictions(pred_path)
+    remaining = len([r for r in records if r["question_id"] not in done])
+    prior = estimate_run(PROBE_MODEL, split, prompt, remaining, long_edge)
+    res = f"{long_edge or DEFAULT_LONG_EDGE} px"
+    print(
+        f"\n== finetune_eval | {run} epoch {epoch} | {split} | prompt={prompt} | {res} | "
+        f"{remaining}/{len(records)} to go | prior {prior.hours:.2f} GPU h"
+    )
+    if args.dry_run:
+        return 0
+    used = (time.monotonic() - SESSION_START) / 3600
+    left = None if args.gpu_hours_left is None else args.gpu_hours_left - used
+    if not args.stand_in:
+        try:
+            check_budget(prior, left)
+        except BudgetExceeded as e:
+            print(f"NOT STARTED (budget): {e}")
+            return EXIT_BUDGET
+    if not smoke:
+        from lumen import hub
+
+        try:
+            hub.preflight(make_hub_api(), hub.predictions_repo())
+        except hub.HubError as e:
+            print(f"NOT STARTED (predictions storage): {e}")
+            return EXIT_STORAGE
+
+    adapter = {
+        "run": run,
+        "epoch": epoch,
+        "step": pointer["step"],
+        "spec_sha256": hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest(),
+        "repo": pointer.get("repo"),
+        "path": pointer.get("path"),
+        "revision": pointer.get("revision"),
+        "adapter_model_sha256": pointer["files"].get("adapter_model.safetensors"),
+    }
+    backend = make_finetuned_backend(args, spec, _adapter_dir(run, epoch, kind, pointer), adapter)
+    batch_size = args.batch_size or MODEL_COSTS[PROBE_MODEL].batch_size
+    calibration: dict = {}
+
+    def on_batch(n_done: int, seconds: float) -> None:
+        if calibration or n_done < args.calibration_items or n_done >= remaining:
+            return
+        cal = calibrated_estimate(prior, n_done, seconds)
+        calibration.update(estimate=cal.as_dict(), measured_items=n_done, seconds=round(seconds, 2))
+        print(f"   calibrated: {seconds / n_done:.3f} s/question -> {cal.hours:.2f} GPU h total")
+        if not args.stand_in and left is not None:
+            rest = calibrated_estimate(
+                estimate_run(PROBE_MODEL, split, prompt, remaining - n_done, long_edge),
+                n_done,
+                seconds,
+            )
+            check_budget(rest, left - (time.monotonic() - SESSION_START) / 3600 + used)
+
+    t0 = time.monotonic()
+    status, error = "completed", None
+    try:
+        preds, stats = run_predictions(
+            backend,
+            records,
+            ZipImages(zip_path),
+            prompt_key=prompt,
+            split=split,
+            out_path=pred_path,
+            batch_size=batch_size,
+            on_batch=on_batch,
+            prefetch_workers=args.prefetch_workers,
+        )
+    except BudgetExceeded as e:
+        print(f"STOPPED (budget): {e}\n   answered so far is saved in {pred_path}; rerun resumes.")
+        return EXIT_BUDGET
+    except NonFiniteOutput as e:
+        status, error, stats = "failed_non_finite", str(e), None
+        _, preds = read_predictions(pred_path)
+    hours = (time.monotonic() - t0) / 3600
+    payload: dict = {
+        "stage": "finetune_eval",
+        "status": status,
+        "error": error,
+        "smoke": smoke,
+        "run": run,
+        "epoch": epoch,
+        "split": split,
+        "model": backend.describe(),
+        "spec": spec,
+        "adapter": adapter,
+        "prompt_key": prompt,
+        "image_longest_edge": long_edge,
+        "batch_size": batch_size,
+        "gpu_hours": {
+            "prior_estimate": prior.as_dict(),
+            "calibration": calibration or None,
+            "actual_this_run": round(hours, 4),
+        },
+        "run_stats": None
+        if stats is None
+        else {
+            "new": stats.new,
+            "resumed": stats.resumed,
+            "seconds": round(stats.seconds, 1),
+            "sec_per_question": round(stats.seconds / stats.new, 4) if stats.new else None,
+        },
+    }
+    if status == "completed":
+        m = payload["metrics"] = score_predictions(records, preds)
+        ids = [r["question_id"] for r in records]
+        y = np.array([r["answerable"] for r in records])
+        s = np.array([1.0 - preds[q]["p_unanswerable"] for q in ids])
+        acc = evaluate_accuracy({q: p["answer"] for q, p in preds.items()}, records)
+        per_q = np.array([100 * acc.per_question[q] for q in ids])
+        said = np.array([preds[q]["answer"].strip().lower() == UNANSWERABLE for q in ids])
+        payload["answerable_breakdown"] = abstention_breakdown(y, said, per_q)
+        if split == "dev":
+            t, f1 = best_f1_threshold(y, s)
+            payload["threshold_choice"] = {
+                "threshold": t,
+                "f1_dev": f1,
+                "rule": "maximize F1 (unanswerable positive) on this run's dev predictions; "
+                "applied unchanged to val",
+            }
+        else:
+            payload["choice"] = choice_ref
+            payload["f1_at_dev_threshold"] = {
+                "threshold": threshold,
+                "f1": f1_at_threshold(y, s, threshold),
+                "label": "F1 at the threshold chosen on dev (not the official 0.5)",
+            }
+        print(
+            f"   accuracy {m['accuracy']['overall']:.2f} [{m['accuracy']['ci95']['low']:.2f}, "
+            f"{m['accuracy']['ci95']['high']:.2f}]  AP "
+            f"{m['answerability']['average_precision']:.2f}  said-unanswerable "
+            f"{100 * m['said_unanswerable_rate']:.1f}%  ({hours:.2f} h)"
+        )
+    else:
+        payload["answered"] = len(preds)
+    payload["predictions"], storage_error = _store_predictions(
+        pred_path,
+        f"{FINETUNE_DIR}/{run}/{pred_path.name}",
+        f"{run} epoch {epoch} {split} predictions",
+        smoke=smoke or status != "completed",
+    )
+    result = write_result(run_dir / f"{name}.json", payload)
+    collect(result, str(Path(FINETUNE_DIR) / kind / run))
+    if status != "completed":
+        print(f"FAILED: {error}\n   recorded in {result}")
+        return EXIT_NON_FINITE
+    if storage_error:
+        print(f"STORAGE FAILED: {storage_error}\n   the rerun re-scores and uploads again")
+        return EXIT_STORAGE
+    return 0
+
+
+# ----------------------------------------------------------------------- finetune_choice
+
+
+def _run_dirs(kind: str) -> list[Path]:
+    root = _finetune_root(kind)
+    if not root.is_dir():
+        return []
+    return sorted(d for d in root.iterdir() if d.is_dir() and d.name != "smoke")
+
+
+def _epoch_results(run_dir: Path, split: str) -> list[dict]:
+    """The newest result per epoch for one run and split, completed runs only."""
+    out = []
+    names = {f.name.split(".")[0] for f in run_dir.glob(f"{split}-e*.json")}
+    for name in sorted(names):
+        d = _newest(run_dir, name)
+        if d is not None and d["status"] == "completed":
+            out.append(d)
+    return out
+
+
+def cmd_finetune_choice(args: argparse.Namespace) -> int:
+    """Pick the fine-tuning config and epoch on dev (lumen.train.selection.RULE). CPU, seconds."""
+    from lumen.train.loop import TrainConfig
+    from lumen.train.selection import choose_finetune, family, is_sweep_run, spec_sha256
+    from lumen.zeroshot.harness import question_ids_sha256
+
+    kind = "smoke" if args.smoke else ""
+    sweep_seed = TrainConfig().seed
+    candidates, docs = [], {}
+    for run_dir in _run_dirs(kind):
+        for d in _epoch_results(run_dir, "dev"):
+            if not is_sweep_run(d["spec"], sweep_seed):
+                continue
+            key = (d["run"], d["epoch"])
+            docs[key] = d
+            candidates.append(
+                {
+                    "run": d["run"],
+                    "epoch": d["epoch"],
+                    "step": d["adapter"]["step"],
+                    "accuracy": d["metrics"]["accuracy"]["overall"],
+                    "average_precision": d["metrics"]["answerability"]["average_precision"],
+                    "said_unanswerable_rate": d["metrics"]["said_unanswerable_rate"],
+                    "answerable_breakdown": d["answerable_breakdown"],
+                    "lr": d["spec"]["config"]["lr"],
+                    "lora_r": d["spec"]["config"]["lora_r"],
+                    "epochs_in_schedule": d["spec"]["epochs"],
+                }
+            )
+    question_sets = {docs[k]["metrics"]["question_ids_sha256"] for k in docs}
+    if len(question_sets) > 1:
+        raise SystemExit("the dev results answered different question sets; can't compare them")
+    if not kind and candidates:
+        full_dev = question_ids_sha256(read_ids(SPLITS_DIR / SPLIT_FILES["dev"]))
+        if question_sets != {full_dev}:
+            raise SystemExit("the dev results don't cover all of the committed dev split")
+    try:
+        choice = choose_finetune(candidates)
+    except ValueError as e:
+        raise SystemExit(str(e)) from None
+    c = choice["chosen"]
+    d = docs[(c["run"], c["epoch"])]
+    payload = {
+        "stage": "finetune_choice",
+        "smoke": bool(kind),
+        "rule": choice["rule"],
+        "sweep_seed": sweep_seed,
+        "chosen": {
+            **c,
+            "spec": d["spec"],
+            "family_sha256": spec_sha256(family(d["spec"])),
+            "threshold": d["threshold_choice"]["threshold"],
+        },
+        "ranking": choice["ranking"],
+        "data_used": "dev only; no val or test data",
+    }
+    result = write_result(_finetune_root(kind) / "choice.json", payload)
+    collect(result, str(Path(FINETUNE_DIR) / kind))
+    print(f"{'run':<24}{'epoch':>6}{'step':>7}{'lr':>9}{'acc':>8}{'AP':>8}{'unans%':>8}")
+    for r in choice["ranking"]:
+        print(
+            f"{r['run']:<24}{r['epoch']:>6}{r['step']:>7}{r['lr']:>9.0e}{r['accuracy']:>8.2f}"
+            f"{r['average_precision']:>8.2f}{100 * r['said_unanswerable_rate']:>8.1f}"
+        )
+    print(f"chosen: {c['run']} epoch {c['epoch']} (dev accuracy {c['accuracy']:.2f})")
+    return 0
+
+
+# ---------------------------------------------------------------------- finetune_compare
+
+
+def _predictions_of(doc: dict, local: Path) -> dict[str, dict]:
+    """A result's predictions: the local file if its sha256 matches the result, else the Hub."""
+    from lumen.zeroshot.harness import read_predictions
+
+    pointer = doc["predictions"]
+    if local.exists() and hashlib.sha256(local.read_bytes()).hexdigest() == pointer["sha256"]:
+        return read_predictions(local)[1]
+    if pointer.get("stored") == "private Hugging Face dataset":
+        return read_predictions(download_predictions(pointer))[1]
+    raise SystemExit(f"{local.name}: not on disk and not stored on the Hub")
+
+
+def cmd_finetune_compare(args: argparse.Namespace) -> int:
+    """The Stage 3 results table on val: fine-tuned (each seed) vs the matched zero-shot baseline,
+    paired on the same questions, and the no-unanswerable ablation vs the full run. CPU."""
+    import numpy as np
+
+    from lumen.eval.paired import paired_difference, seed_summary
+    from lumen.eval.vizwiz_metric import evaluate_accuracy
+    from lumen.train.selection import family
+    from lumen.zeroshot.harness import question_ids_sha256
+
+    kind = "smoke" if args.smoke else ""
+    choice = _choice(kind)
+    chosen = choice["chosen"]
+    epoch = chosen["epoch"]
+    prompt = chosen["spec"]["config"]["prompt_key"]
+    long_edge = chosen["spec"]["config"]["image_longest_edge"]
+
+    systems: dict[str, tuple[dict, Path]] = {}
+    main_runs, ablation_runs = [], []
+    for run_dir in _run_dirs(kind):
+        d = _newest(run_dir, f"val-e{epoch}")
+        if d is None or d["status"] != "completed":
+            continue
+        if family(d["spec"]) != family(chosen["spec"]):
+            continue
+        local = PREDICTIONS_DIR / FINETUNE_DIR / kind / d["run"] / f"val-e{epoch}.predictions.jsonl"
+        systems[d["run"]] = (d, local)
+        cfg = d["spec"]["config"]
+        (main_runs if cfg["include_unanswerable"] else ablation_runs).append(d["run"])
+    if not main_runs:
+        raise SystemExit(f"no val result for the chosen config at epoch {epoch}: run finetune_eval")
+    base_kind = "smoke" if kind else ""
+    base_name = _run_name("val", prompt, long_edge)
+    base_doc = _newest(_run_dir(PROBE_MODEL, base_kind), base_name)
+    if base_doc is None or base_doc["status"] != "completed":
+        raise SystemExit(
+            f"no matched zero-shot baseline ({PROBE_MODEL} {base_name}): run `baseline --model "
+            f"{PROBE_MODEL} --split val --prompt dev-selected --long-edge chosen` first"
+        )
+    base_local = _pred_path(PROBE_MODEL, "val", prompt, base_kind, long_edge)
+    base_preds = _predictions_of(base_doc, base_local)
+
+    ids = sorted(base_preds)
+    by_id = {
+        r["question_id"]: r for r in _load_split("val", load_pins(), limit=None, images=False)[0]
+    }
+    records = [by_id[q] for q in ids]
+    y = np.array([r["answerable"] for r in records])
+
+    def per_question(preds: dict[str, dict]) -> tuple[np.ndarray, np.ndarray]:
+        if sorted(preds) != ids:
+            raise SystemExit("systems answered different val questions; refusing to compare")
+        acc = evaluate_accuracy({q: p["answer"] for q, p in preds.items()}, records)
+        a = np.array([100 * acc.per_question[q] for q in ids])
+        s = np.array([1.0 - preds[q]["p_unanswerable"] for q in ids])
+        return a, s
+
+    a0, s0 = per_question(base_preds)
+    scored = {run: per_question(_predictions_of(d, local)) for run, (d, local) in systems.items()}
+
+    def row(run: str) -> dict:
+        d = systems[run][0]
+        m = d["metrics"]
+        a, s = scored[run]
+        return {
+            "run": run,
+            "seed": d["spec"]["config"]["seed"],
+            "include_unanswerable": d["spec"]["config"]["include_unanswerable"],
+            "accuracy": m["accuracy"]["overall"],
+            "accuracy_ci95": m["accuracy"]["ci95"],
+            "per_answer_type": m["accuracy"]["per_answer_type"],
+            "average_precision": m["answerability"]["average_precision"],
+            "f1_at_0_5_official": m["answerability"]["f1_at_0_5_official"],
+            "f1_at_dev_threshold": d["f1_at_dev_threshold"],
+            "said_unanswerable_rate": m["said_unanswerable_rate"],
+            "answerable_breakdown": d["answerable_breakdown"],
+            "vs_zero_shot": paired_difference(y, a, a0, s, s0),
+            "result": d["run"],
+        }
+
+    mains = [row(r) for r in sorted(main_runs)]
+    ablations = []
+    for r in sorted(ablation_runs):
+        ab = row(r)
+        seed = ab["seed"]
+        partner = next((m for m in mains if m["seed"] == seed), mains[0])
+        a, s = scored[r]
+        pa, ps = scored[partner["run"]]
+        ab["vs_full_training"] = {"partner": partner["run"], **paired_difference(y, a, pa, s, ps)}
+        ablations.append(ab)
+    bm = base_doc["metrics"]
+    payload = {
+        "stage": "finetune_compare",
+        "smoke": bool(kind),
+        "split": "val",
+        "n": len(ids),
+        "question_ids_sha256": question_ids_sha256(ids),
+        "choice": {"run": chosen["run"], "epoch": epoch, "rule": choice["rule"]},
+        "zero_shot": {
+            "model": PROBE_MODEL,
+            "result": base_name,
+            "accuracy": bm["accuracy"]["overall"],
+            "accuracy_ci95": bm["accuracy"]["ci95"],
+            "average_precision": bm["answerability"]["average_precision"],
+            "said_unanswerable_rate": bm["said_unanswerable_rate"],
+        },
+        "fine_tuned": mains,
+        "across_seeds": {
+            "accuracy": seed_summary([m["accuracy"] for m in mains]),
+            "average_precision": seed_summary([m["average_precision"] for m in mains]),
+            "f1_at_dev_threshold": seed_summary([m["f1_at_dev_threshold"]["f1"] for m in mains]),
+            "accuracy_gain_vs_zero_shot": seed_summary(
+                [m["vs_zero_shot"]["accuracy_diff"] for m in mains]
+            ),
+            "ap_gain_vs_zero_shot": seed_summary([m["vs_zero_shot"]["ap_diff"] for m in mains]),
+        },
+        "ablation_no_unanswerable": ablations,
+    }
+    result = write_result(_finetune_root(kind) / "comparison.json", payload)
+    collect(result, str(Path(FINETUNE_DIR) / kind))
+    print(f"val, n={len(ids)}; fine-tuned = {chosen['run']} config at epoch {epoch}")
+    print(f"{'system':<28}{'acc':>8}{'vs 0-shot [95% CI]':>26}{'AP':>8}{'dAP':>8}{'unans%':>8}")
+    print(
+        f"{'zero-shot ' + base_name:<28}{bm['accuracy']['overall']:>8.2f}{'':>26}"
+        f"{bm['answerability']['average_precision']:>8.2f}{'':>8}"
+        f"{100 * bm['said_unanswerable_rate']:>8.1f}"
+    )
+    for m in mains + ablations:
+        v = m["vs_zero_shot"]
+        ci = v["accuracy_diff_ci95"]
+        diff = f"{v['accuracy_diff']:+.2f} [{ci['low']:+.2f}, {ci['high']:+.2f}]"
+        print(
+            f"{m['run']:<28}{m['accuracy']:>8.2f}{diff:>26}{m['average_precision']:>8.2f}"
+            f"{v['ap_diff']:>+8.2f}{100 * m['said_unanswerable_rate']:>8.1f}"
+        )
+    acc = payload["across_seeds"]["accuracy"]
+    std = f" +/- {acc['std']:.2f}" if acc["std"] is not None else " (one seed)"
+    print(f"across {acc['n_seeds']} seed(s): accuracy {acc['mean']:.2f}{std}")
+    return 0
+
+
 # -------------------------------------------------------------------------- storage_check
 
 
@@ -1544,6 +2531,64 @@ def main() -> int:
     t.add_argument("--device", choices=["cuda", "cpu"], default=None)
     t.add_argument("--dry-run", action="store_true", help="print the GPU-hour prior and exit")
     t.set_defaults(fn=cmd_train_speed)
+    tr = sub.add_parser("train", help="LoRA fine-tuning on train_fit (Stage 3)")
+    tr.add_argument("--run", type=_run_name_arg, required=True, help="name bound to this config")
+    tr.add_argument("--epochs", type=int, default=1, help="length of the LR schedule, in epochs")
+    tr.add_argument(
+        "--stop-after-epoch",
+        type=int,
+        default=None,
+        help="train only the first k epochs of the schedule (replicates of a chosen epoch)",
+    )
+    tr.add_argument("--lr", type=float, default=2e-4)
+    tr.add_argument("--lora-r", type=int, default=16)
+    tr.add_argument("--lora-alpha", type=int, default=None, help="default: 2 x rank")
+    tr.add_argument("--warmup-steps", type=int, default=50)
+    tr.add_argument("--seed", type=int, default=None, help="default: the pinned split seed")
+    tr.add_argument(
+        "--no-unanswerable", action="store_true", help="ablation: drop unanswerable examples"
+    )
+    tr.add_argument("--micro-batch", type=int, default=4)
+    tr.add_argument("--grad-accum", type=int, default=2)
+    tr.add_argument("--checkpoint-every", type=int, default=250)
+    tr.add_argument("--calibration-steps", type=int, default=10)
+    tr.add_argument(
+        "--long-edge",
+        type=_long_edge_arg,
+        required=True,
+        help="image long edge in px (512/1024/1536/2048), or 'chosen' (resolution_choice)",
+    )
+    tr.add_argument("--gpu-hours-left", type=float, default=None)
+    tr.add_argument(
+        "--session-hours",
+        type=float,
+        default=11.0,
+        help="stop cleanly (checkpoint uploaded) after this long; Kaggle ends sessions at 12 h",
+    )
+    tr.add_argument("--limit", type=int, default=None, help="smoke run on the first N train_fit")
+    tr.add_argument("--stand-in", action="store_true", help="tiny random-weight model (pipeline)")
+    tr.add_argument("--device", choices=["cuda", "cpu"], default=None)
+    tr.add_argument("--dry-run", action="store_true", help="print the plan and GPU hours, exit")
+    tr.set_defaults(fn=cmd_train)
+    fe = sub.add_parser("finetune_eval", help="a fine-tuned adapter on dev or val")
+    fe.add_argument("--run", type=_run_name_arg, required=True)
+    fe.add_argument("--epoch", type=int, required=True)
+    fe.add_argument("--split", choices=["dev", "val"], required=True)
+    fe.add_argument("--gpu-hours-left", type=float, default=None)
+    fe.add_argument("--batch-size", type=int, default=None)
+    fe.add_argument("--calibration-items", type=int, default=32)
+    fe.add_argument("--prefetch-workers", type=int, default=PREFETCH_ON)
+    fe.add_argument("--limit", type=int, default=None, help="smoke run on the first N questions")
+    fe.add_argument("--stand-in", action="store_true", help="tiny random-weight model (pipeline)")
+    fe.add_argument("--device", choices=["cuda", "cpu"], default=None)
+    fe.add_argument("--dry-run", action="store_true", help="print the GPU-hour plan and exit")
+    fe.set_defaults(fn=cmd_finetune_eval)
+    fc = sub.add_parser("finetune_choice", help="pick the config and epoch on dev (CPU)")
+    fc.add_argument("--smoke", action="store_true", help="choose among smoke runs (pipeline)")
+    fc.set_defaults(fn=cmd_finetune_choice)
+    fp = sub.add_parser("finetune_compare", help="val table vs the zero-shot baseline (CPU)")
+    fp.add_argument("--smoke", action="store_true", help="compare smoke runs (pipeline)")
+    fp.set_defaults(fn=cmd_finetune_compare)
     args = parser.parse_args()
     return args.fn(args)
 

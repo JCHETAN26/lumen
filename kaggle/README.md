@@ -19,10 +19,13 @@ is the runner:
 | `mac_sample` | 1 | **None** | Package the 300 pinned val images + annotations for the Mac |
 | `baseline` | 2 | GPU T4 | Zero-shot baselines: 4 models × 2 prompts on dev, then each model's dev-chosen prompt on val |
 | `rebuild_baseline` | 2 | **None** | Re-create lost baseline result files from the Hub predictions (re-scores, never re-answers) |
-| `baseline --long-edge N` | 3 prep | GPU T4 | Image resolution probe: SmolVLM2-500M on `dev_select` at 1,536 / 1,024 / 512 px |
+| `baseline --long-edge N` | 3 prep | GPU T4 | Image resolution probe: SmolVLM2-500M on all of dev at 1,536 / 1,024 / 512 px |
 | `resolution_choice` | 3 prep | **None** | Pick the resolution from the probe (rule fixed in advance) |
 | `train_speed` | 3 prep | GPU T4 | 200 LoRA steps on `train_fit`: s/step, memory, tokens/s, projected h/epoch |
-| `train`, `eval` | 3 | GPU T4 | LoRA fine-tuning and evaluation (added in Stage 3) |
+| `train` | 3 | GPU T4 | LoRA fine-tuning on `train_fit`; resumable across sessions via the private adapter repo; publishes each epoch's adapter |
+| `finetune_eval` | 3 | GPU T4 | One run's epoch adapter on dev (every sweep epoch; picks its F1 threshold) or val (dev-chosen config only) |
+| `finetune_choice` | 3 | **None** | Pick the config and epoch on dev (rule fixed in advance) |
+| `finetune_compare` | 3 | **None** | Val table: fine-tuned seeds vs the matched zero-shot baseline, paired; the no-unanswerable ablation |
 
 ## GPU quota guard
 
@@ -188,6 +191,44 @@ uv run python kaggle/run_stages.py train_speed --long-edge chosen --gpu-hours-le
   peak memory, tokens/s, and projected hours per epoch (2,309 steps for 18,471 examples).
 - Checkpoints go to `/kaggle/working/lumen-checkpoints/` only; the adapter isn't published.
 
+## Stage 3: LoRA fine-tuning
+
+```bash
+R="uv run python kaggle/run_stages.py"
+$R train --run lr2e-4 --lr 2e-4 --epochs 2 --long-edge chosen --gpu-hours-left H
+$R finetune_eval --run lr2e-4 --epoch 1 --split dev --gpu-hours-left H   # and epoch 2
+# ... the other sweep runs (lr1e-4, lr4e-4), each epoch on dev ...
+$R finetune_choice                                                       # CPU; commit it
+$R train --run c2e-4-s2 --lr 2e-4 --epochs 2 --stop-after-epoch 1 --seed 20260929 --long-edge chosen ...
+$R finetune_eval --run c2e-4-s2 --epoch 1 --split dev ...                # its threshold
+$R finetune_eval --run lr2e-4 --epoch 1 --split val ...                  # chosen + replicates
+$R finetune_compare                                                      # CPU; commit it
+```
+
+- **A run name is bound to one spec** (config, epochs, data, model pin, target and prompt
+  versions; `spec_sha256` in every result). Reusing a name with another config is refused.
+- **Resumable across sessions.** Every `--checkpoint-every` steps (250) the full state (LoRA
+  weights, optimizer, scaler, scheduler, RNG) is uploaded to the private adapter repo at
+  `runs/<run>/checkpoint/`. A new session with an empty disk downloads it, checks the spec, and
+  continues; the data order is a function of (seed, step), so the result equals an uninterrupted
+  run. `--session-hours` (11) stops cleanly before Kaggle's 12 h limit.
+- **Epoch adapters** go to `runs/<run>/epoch-<k>/` with a `lumen_adapter.json` (run, epoch, step,
+  spec). `finetune_eval` finds them from the train results, or from the Hub listing if the results
+  are gone, and verifies every file's sha256 before loading.
+- **The LR schedule spans `--epochs`**; `--stop-after-epoch k` trains only the first k epochs of it,
+  so a replicate of "epoch 1 of a 2-epoch run" sees exactly that schedule.
+- **Cost:** the train prior comes from the speed test's measured median s/step (x 1.1) when
+  `results/stage3_prep/train_speed-le<N>.json` is in the clone, else from `lumen.train.estimates`.
+- **Fine-tuned predictions** carry the adapter (run, epoch, step, revision, adapter sha256) in
+  their header, so they can never be mixed with another adapter's or the base model's; they go to
+  the private predictions dataset under `finetune/<run>/`.
+- **No tuning on val.** The choice rule (`lumen.train.selection.RULE`) uses dev only. `finetune_eval
+  --split val` refuses any run whose config (seed and the unanswerable ablation aside) or epoch
+  differs from the committed choice, and uses the F1 threshold from that run's own dev result.
+- **Comparison:** `finetune_compare` pairs each fine-tuned seed with SmolVLM2-500M zero-shot at the
+  same resolution on the same val questions (bootstrap CIs on the accuracy and AP differences),
+  reports mean and std across seeds, and compares the ablation with the full run of the same seed.
+
 ## 4. What to download, and where it goes
 
 Only **`/kaggle/working/lumen-results/`** leaves Kaggle (Output tab). Commit its contents on the
@@ -202,6 +243,7 @@ Mac. Copy only files that don't exist yet; never overwrite a committed result.
 | `mac_sample_val_*.json` | `results/mac_sample/` (records the archive's sha256) |
 | `baseline/<model>/*.json` | `results/baseline/<model>/` (`baseline/smoke/` too, if you want the checks kept) |
 | `stage3_prep/*.json` | `results/stage3_prep/` |
+| `finetune/**/*.json` | `results/finetune/` (same subfolders) |
 
 After the first `data` run, copy the sha256 values from `observed_hashes.json` into
 `configs/pins.yaml`. From then on, any download that doesn't match stops the run.
