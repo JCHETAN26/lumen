@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ask, AskError, type AskResult } from "./api";
 import Camera from "./Camera";
 import { CANT_TELL, spokenResult, TIPS } from "./messages";
@@ -43,9 +43,19 @@ export default function App() {
     if (f) acceptPhoto(f);
   }
 
+  // When the camera closes, its controls disappear: give focus back to the button that opened
+  // it, after React has put that button back in the page.
+  const refocusCameraButton = useRef(false);
+  useEffect(() => {
+    if (!cameraOpen && refocusCameraButton.current) {
+      refocusCameraButton.current = false;
+      cameraButton.current?.focus();
+    }
+  }, [cameraOpen]);
+
   function closeCamera() {
+    refocusCameraButton.current = true;
     setCameraOpen(false);
-    requestAnimationFrame(() => cameraButton.current?.focus());
   }
 
   async function onSubmit(e: FormEvent) {
