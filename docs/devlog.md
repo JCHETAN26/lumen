@@ -2,6 +2,18 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-06: The final test stage, and a hole in the seal it closes
+
+`final_test` runs the sealed test evaluation: the dev-chosen fine-tune and the matched zero-shot
+baseline on the same 8,000 questions, in one run, with their paired difference.
+
+**The hole:** the seal's record lived only on the machine's disk. Kaggle wipes the disk between
+sessions, so a run that crashed after claiming the seal, before its record was downloaded, would
+leave no trace, and the next session could run test again. Now the claim is uploaded to the
+private predictions dataset before any test answer is loaded, and every run checks there first.
+Everything that can fail cheaply (opt-in, clean tree, quota, storage, disk space) is checked
+before the claim, so an avoidable failure never burns the one run. There is still no resume.
+
 ## 2026-10-06: Stage 5: the app, and three things it deliberately doesn't do
 
 Built a localhost-only answer server (FastAPI) and a React + TypeScript page, tested with the fake

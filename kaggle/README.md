@@ -26,6 +26,8 @@ is the runner:
 | `finetune_eval` | 3 | GPU T4 | One run's epoch adapter on dev (every sweep epoch; picks its F1 threshold) or val (dev-chosen config only) |
 | `finetune_choice` | 3 | **None** | Pick the config and epoch on dev (rule fixed in advance) |
 | `finetune_compare` | 3 | **None** | Val table: fine-tuned seeds vs the matched zero-shot baseline, paired; the no-unanswerable ablation |
+| `pin_adapter` | 4 | **None** | Print the `configs/pins.yaml` entry for an epoch adapter (what the Mac downloads) |
+| `final_test` | final | GPU T4 | The single sealed test evaluation: dev-chosen fine-tune + matched zero-shot, once |
 
 ## GPU quota guard
 
@@ -229,6 +231,17 @@ $R finetune_compare                                                      # CPU; 
   same resolution on the same val questions (bootstrap CIs on the accuracy and AP differences),
   reports mean and std across seeds, and compares the ablation with the full run of the same seed.
 
+## The final test run
+
+`final_test --final-test-evaluation` runs once, ever (`lumen.eval.test_seal`). Before it claims
+the seal it checks the opt-in, a clean tree, that no record exists on disk *or* in the private
+predictions dataset (`test/FINAL_TEST_RUN.json`: Kaggle wipes disks between sessions, so the
+claim is uploaded before any test answer is loaded), the quota, storage, and disk space for the
+test files. It then answers all 8,000 test questions with the dev-chosen fine-tune (F1 at its dev
+threshold) and with zero-shot SmolVLM2-500M at the same resolution and prompt, and records both
+plus their paired difference. No resume: a crashed run stays claimed, and what gets reported is a
+human decision written in the devlog. `--dry-run` prints the plan and claims nothing.
+
 ## 4. What to download, and where it goes
 
 Only **`/kaggle/working/lumen-results/`** leaves Kaggle (Output tab). Commit its contents on the
@@ -244,6 +257,7 @@ Mac. Copy only files that don't exist yet; never overwrite a committed result.
 | `baseline/<model>/*.json` | `results/baseline/<model>/` (`baseline/smoke/` too, if you want the checks kept) |
 | `stage3_prep/*.json` | `results/stage3_prep/` |
 | `finetune/**/*.json` | `results/finetune/` (same subfolders) |
+| `test/FINAL_TEST_RUN.json` | `results/test/` (commit it immediately) |
 
 After the first `data` run, copy the sha256 values from `observed_hashes.json` into
 `configs/pins.yaml`. From then on, any download that doesn't match stops the run.

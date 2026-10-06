@@ -22,6 +22,8 @@ Stages (each writes result JSON under results/ and copies it to the download fol
     finetune_compare  val table: fine-tuned seeds vs the matched zero-shot baseline, paired,
                 and the no-unanswerable ablation                                   (CPU only)
     pin_adapter print the configs/pins.yaml entry for an epoch adapter (for the Mac) (CPU only)
+    final_test  the single sealed test evaluation: the dev-chosen fine-tune and the matched
+                zero-shot baseline, once, ever (--final-test-evaluation)                (GPU)
 
     baseline    zero-shot baselines (Stage 2) for the pinned models on dev or val        (GPU)
                 --dry-run prints the GPU-hour plan without loading anything
@@ -2463,6 +2465,232 @@ def cmd_pin_adapter(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------- final_test
+
+FINAL_TEST_HUB_RECORD = "test/FINAL_TEST_RUN.json"
+
+
+def final_test_record_path() -> Path:
+    return RESULTS / "test" / "FINAL_TEST_RUN.json"
+
+
+def final_test_git() -> dict:
+    """Tests replace this; the record names the exact commit that produced the numbers."""
+    from lumen.runmeta import git_info
+
+    return git_info()
+
+
+def cmd_final_test(args: argparse.Namespace) -> int:
+    """The single, sealed evaluation on VizWiz test (lumen.eval.test_seal). Never rerun.
+
+    Two systems answer the same 8,000 test questions in this one run: the fine-tuned adapter
+    chosen on dev (the default-seed run at the chosen epoch, F1 at its dev threshold) and the
+    matched zero-shot SmolVLM2-500M (same resolution and prompt). Everything that can fail cheaply
+    is checked *before* the seal is claimed (opt-in, clean tree, no existing record here or on the
+    Hub, quota, storage, disk). The claim is uploaded to the private predictions dataset before
+    any test answer is loaded, so a wiped Kaggle disk can't hide a crashed run. There is no
+    resume: a crashed run stays claimed, and what to report is a human decision in the devlog.
+    """
+    import numpy as np
+
+    from lumen import hub
+    from lumen.budget import BudgetExceeded, check_budget, prior_estimate
+    from lumen.eval.answerability import f1_at_threshold
+    from lumen.eval.paired import paired_difference
+    from lumen.eval.test_seal import OPT_IN_FLAG, TestSealed, open_final_test_run
+    from lumen.eval.vizwiz_metric import evaluate_accuracy
+    from lumen.zeroshot.estimates import MODEL_COSTS, estimate_run
+    from lumen.zeroshot.harness import run_predictions, score_predictions
+
+    pins = load_pins()
+    choice = _choice("")
+    chosen = choice["chosen"]
+    run, epoch = chosen["run"], chosen["epoch"]
+    spec, pointer = _epoch_adapter(run, epoch, "")
+    prompt = spec["config"]["prompt_key"]
+    long_edge = spec["config"]["image_longest_edge"]
+    dev = _newest(_finetune_root("") / run, f"dev-e{epoch}")
+    if dev is None:
+        raise SystemExit(f"{run} epoch {epoch} has no dev result (its F1 threshold)")
+    threshold = dev["threshold_choice"]["threshold"]
+    n_test = 8000
+    one = estimate_run(PROBE_MODEL, "test", prompt, n_test, long_edge)
+    est = prior_estimate("final_test", 2 * n_test, one.sec_per_item, overhead_s=2 * one.overhead_s)
+    print(
+        f"\n== final_test | {run} epoch {epoch} (dev-chosen) + zero-shot {PROBE_MODEL} | "
+        f"{long_edge or DEFAULT_LONG_EDGE} px | prompt={prompt} | 2 x {n_test} questions | "
+        f"{est.hours:.2f} GPU h (prior)"
+    )
+    if args.dry_run:
+        print("dry run: nothing claimed, nothing downloaded")
+        return 0
+    if not args.final_test_evaluation:
+        raise TestSealed(f"the test split is sealed; pass {OPT_IN_FLAG} to run it, once")
+    git = final_test_git()
+    if not git.get("commit") or git.get("dirty"):
+        raise TestSealed("the final test run needs a clean checkout of a commit")
+    record_path = final_test_record_path()
+    if record_path.exists():
+        raise TestSealed(f"{record_path} exists: the final test evaluation already ran")
+    used = (time.monotonic() - SESSION_START) / 3600
+    left = None if args.gpu_hours_left is None else args.gpu_hours_left - used
+    try:
+        check_budget(est, left)
+    except BudgetExceeded as e:
+        print(f"NOT STARTED (budget): {e}")
+        return EXIT_BUDGET
+    api, repo = make_hub_api(), hub.predictions_repo()
+    try:
+        hub.preflight(api, repo)
+        _, existing = hub.list_files(api, repo, "test/")
+    except hub.HubError as e:
+        print(f"NOT STARTED (predictions storage): {e}")
+        return EXIT_STORAGE
+    if FINAL_TEST_HUB_RECORD in existing:
+        raise TestSealed(
+            f"{repo} already holds {FINAL_TEST_HUB_RECORD}: the final test evaluation was claimed "
+            "in an earlier session. Download that record and report it; never run test again."
+        )
+    need = sum(
+        pins.files[k].size
+        for k in ("test_answers", "test_images")
+        if not (DATA_DIR / pins.files[k].filename).exists()
+    )
+    ensure_free_space(DATA_DIR, need)
+
+    # ---- the seal is claimed from here on: no retries, ever ----
+    final = open_final_test_run(
+        opt_in=True,
+        purpose=f"final VizWiz test: {run} epoch {epoch} vs zero-shot {PROBE_MODEL}",
+        record_path=record_path,
+        git=git,
+    )
+    collect(record_path, "test")
+    claim = hub.upload(api, repo, record_path, FINAL_TEST_HUB_RECORD, "final test run: claimed")
+    print(f"   claimed: {record_path} (also on the Hub @{claim['revision'][:12]})")
+
+    answers_file = fetch_pinned(pins.files["test_answers"], DATA_DIR)
+    images_file = fetch_pinned(pins.files["test_images"], DATA_DIR)
+    records = parse_annotations(
+        json.loads(answers_file.path.read_text(encoding="utf-8")), "test", final_test_run=final
+    )
+    questions = parse_annotations(
+        _annotation_json(fetch_pinned(pins.files["annotations"], DATA_DIR).path, "test"),
+        "test",
+        require_answers=False,
+    )
+    if sorted(r["question_id"] for r in records) != sorted(q["question_id"] for q in questions):
+        raise SystemExit("VQA_test.json and the official test.json list different questions")
+    records.sort(key=lambda r: r["question_id"])
+    images = ZipImages(images_file.path)
+
+    adapter = {
+        "run": run,
+        "epoch": epoch,
+        "step": pointer["step"],
+        "spec_sha256": hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest(),
+        "repo": pointer.get("repo"),
+        "path": pointer.get("path"),
+        "revision": pointer.get("revision"),
+        "adapter_model_sha256": pointer["files"].get("adapter_model.safetensors"),
+    }
+    systems = {
+        "fine_tuned": lambda: make_finetuned_backend(
+            args, spec, _adapter_dir(run, epoch, "", pointer), adapter
+        ),
+        "zero_shot": lambda: make_backend(
+            PROBE_MODEL, argparse.Namespace(**{**vars(args), "long_edge": long_edge})
+        ),
+    }
+    ids = [r["question_id"] for r in records]
+    y = np.array([r["answerable"] for r in records])
+    out: dict = {}
+    scored: dict = {}
+    t0 = time.monotonic()
+    for name, make in systems.items():
+        backend = make()
+        pred_path = PREDICTIONS_DIR / "test" / f"{name}.predictions.jsonl"
+        preds, _ = run_predictions(
+            backend,
+            records,
+            images,
+            prompt_key=prompt,
+            split="test",
+            out_path=pred_path,
+            batch_size=args.batch_size or MODEL_COSTS[PROBE_MODEL].batch_size,
+            prefetch_workers=PREFETCH_ON,
+        )
+        metrics = score_predictions(records, preds)
+        acc = evaluate_accuracy({q: p["answer"] for q, p in preds.items()}, records)
+        a = np.array([100 * acc.per_question[q] for q in ids])
+        s = np.array([1.0 - preds[q]["p_unanswerable"] for q in ids])
+        scored[name] = (a, s)
+        out[name] = {"model": backend.describe(), "metrics": metrics}
+        if name == "fine_tuned":
+            out[name]["f1_at_dev_threshold"] = {
+                "threshold": threshold,
+                "f1": f1_at_threshold(y, s, threshold),
+                "label": "F1 at the threshold chosen on dev (not the official 0.5)",
+            }
+        pointer_, err = _store_predictions(
+            pred_path, f"test/{pred_path.name}", f"final test: {name}", smoke=False
+        )
+        out[name]["predictions"] = pointer_
+        if err:
+            out[name]["storage_error"] = err
+        print(
+            f"   {name}: accuracy {metrics['accuracy']['overall']:.2f} "
+            f"[{metrics['accuracy']['ci95']['low']:.2f}, {metrics['accuracy']['ci95']['high']:.2f}]"
+            f"  AP {metrics['answerability']['average_precision']:.2f}"
+        )
+        del backend
+        _BACKENDS.clear()  # the zero-shot backend is cached by make_backend; free it too
+        _free_gpu()
+    (fa, fs), (za, zs) = scored["fine_tuned"], scored["zero_shot"]
+    results = {
+        "n": len(records),
+        "choice": {"run": run, "epoch": epoch, "rule": choice["rule"]},
+        "image_longest_edge": long_edge,
+        "prompt_key": prompt,
+        "systems": out,
+        "fine_tuned_vs_zero_shot": paired_difference(y, fa, za, fs, zs),
+        "test_files_sha256": {
+            "test_answers": answers_file.sha256,
+            "test_images": images_file.sha256,
+        },
+        "gpu_hours": {"prior_estimate": est.as_dict(), "actual": (time.monotonic() - t0) / 3600},
+    }
+    final.complete(results)
+    try:
+        hub.upload(api, repo, record_path, FINAL_TEST_HUB_RECORD, "final test run: completed")
+    except Exception as e:  # the completed record is on disk and in the download folder
+        print(f"WARNING: couldn't upload the completed record ({e}); download it from Kaggle")
+    dl = DOWNLOAD_DIR / "test" / record_path.name
+    dl.unlink(missing_ok=True)  # replace the "started" copy with the completed record
+    collect(record_path, "test")
+    d = results["fine_tuned_vs_zero_shot"]
+    ci = d["accuracy_diff_ci95"]
+    print(
+        f"   fine-tuned - zero-shot: {d['accuracy_diff']:+.2f} [{ci['low']:+.2f}, "
+        f"{ci['high']:+.2f}] accuracy, {d['ap_diff']:+.2f} AP. Commit {record_path} now."
+    )
+    return 0
+
+
+def _free_gpu() -> None:
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
 # -------------------------------------------------------------------------- storage_check
 
 
@@ -2629,6 +2857,16 @@ def main() -> int:
     pa.add_argument("--run", type=_run_name_arg, required=True)
     pa.add_argument("--epoch", type=int, required=True)
     pa.set_defaults(fn=cmd_pin_adapter)
+    ft = sub.add_parser("final_test", help="the single sealed VizWiz test evaluation (GPU)")
+    ft.add_argument(
+        "--final-test-evaluation",
+        action="store_true",
+        help="opt in to the one final test run; it can never be repeated",
+    )
+    ft.add_argument("--gpu-hours-left", type=float, default=None)
+    ft.add_argument("--batch-size", type=int, default=None)
+    ft.add_argument("--dry-run", action="store_true", help="print the plan; claims nothing")
+    ft.set_defaults(fn=cmd_final_test, stand_in=False, device=None)
     args = parser.parse_args()
     return args.fn(args)
 
