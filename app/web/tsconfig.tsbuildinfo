@@ -1,1 +1,0 @@
-{"root":["./src/App.test.tsx","./src/App.tsx","./src/Camera.tsx","./src/api.ts","./src/main.tsx","./src/messages.ts","./src/speech.ts","./src/test-setup.ts","./e2e/app.spec.ts","./vite.config.ts","./playwright.config.ts"],"version":"6.0.3"}
