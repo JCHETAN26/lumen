@@ -47,6 +47,8 @@ def predictions_header(backend: Backend, prompt_key: str, split: str) -> dict[st
     # Only when set: files written at the processor's default resolution keep their header.
     if d.get("image_longest_edge") is not None:
         model["image_longest_edge"] = d["image_longest_edge"]
+    if d.get("adapter") is not None:  # fine-tuned: the adapter is part of the model's identity
+        model["adapter"] = d["adapter"]
     return {
         "model": model,
         "generation": d.get("generation"),

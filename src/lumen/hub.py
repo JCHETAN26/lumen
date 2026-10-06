@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -110,21 +111,29 @@ def upload(api: Any, repo_id: str, local: Path, path_in_repo: str, message: str)
     }
 
 
-def list_files(api: Any, repo_id: str, prefix: str) -> tuple[str, list[str]]:
-    """(commit SHA, paths under `prefix`) of the private dataset repo, read at one exact commit
-    (never a branch name), so everything fetched afterwards comes from the same revision."""
-    info = api.repo_info(repo_id, repo_type="dataset")
+def list_files(
+    api: Any, repo_id: str, prefix: str, repo_type: str = "dataset"
+) -> tuple[str, list[str]]:
+    """(commit SHA, paths under `prefix`) of a private repo, read at one exact commit (never a
+    branch name), so everything fetched afterwards comes from the same revision."""
+    info = api.repo_info(repo_id, repo_type=repo_type)
     if not getattr(info, "private", False):
         raise HubError(f"{repo_id} is not private; refusing to use it")
     sha = getattr(info, "sha", None)
     if not sha or len(sha) != 40:
         raise HubError(f"{repo_id}: the Hub returned no commit SHA")
-    files = api.list_repo_files(repo_id, repo_type="dataset", revision=sha)
+    files = api.list_repo_files(repo_id, repo_type=repo_type, revision=sha)
     return sha, sorted(f for f in files if f.startswith(prefix))
 
 
-def fetch(repo_id: str, path: str, revision: str, token: str | None = None) -> Path:
-    """Download one file of the private dataset at an exact commit; returns the local path."""
+def fetch(
+    repo_id: str,
+    path: str,
+    revision: str,
+    token: str | None = None,
+    repo_type: str = "dataset",
+) -> Path:
+    """Download one file of a private repo at an exact commit; returns the local path."""
     if len(revision) != 40:
         raise HubError(f"fetch needs a full commit SHA, not {revision!r}")
     from huggingface_hub import hf_hub_download
@@ -133,11 +142,48 @@ def fetch(repo_id: str, path: str, revision: str, token: str | None = None) -> P
         hf_hub_download(
             repo_id,
             path,
-            repo_type="dataset",
+            repo_type=repo_type,
             revision=revision,
             token=token or os.environ.get("HF_TOKEN"),
         )
     )
+
+
+# ------------------------------------------------------------------- adapters (model repo)
+
+
+def folder_digest(local_dir: Path) -> dict[str, str]:
+    """sha256 of every file under `local_dir`, by relative path (what a result records)."""
+    return {
+        str(p.relative_to(local_dir)): _sha256(p)
+        for p in sorted(local_dir.rglob("*"))
+        if p.is_file()
+    }
+
+
+def upload_folder(
+    api: Any, repo_id: str, local_dir: Path, path_in_repo: str, message: str
+) -> dict[str, Any]:
+    """Upload a folder (a LoRA adapter or a resumable checkpoint) to the private *model* repo;
+    return the pointer results record: repo, path, Hub commit revision, and each file's sha256."""
+    preflight(api, repo_id, "model")
+    commit = api.upload_folder(
+        folder_path=str(local_dir),
+        path_in_repo=path_in_repo,
+        repo_id=repo_id,
+        repo_type="model",
+        commit_message=message,
+    )
+    revision = getattr(commit, "oid", None)
+    if not revision or len(revision) != 40:
+        raise HubError(f"upload of {path_in_repo} returned no commit revision")
+    return {
+        "repo": repo_id,
+        "repo_type": "model",
+        "path": path_in_repo,
+        "revision": revision,
+        "files": folder_digest(local_dir),
+    }
 
 
 def pointer(repo_id: str, path_in_repo: str, revision: str, local: Path) -> dict[str, Any]:
@@ -159,3 +205,29 @@ def download(pointer: dict[str, Any], token: str | None = None) -> Path:
     if _sha256(path) != pointer["sha256"]:
         raise HubError(f"{pointer['path']}@{pointer['revision'][:8]}: sha256 mismatch")
     return path
+
+
+def download_folder(
+    pointer: dict[str, Any],
+    dest: Path,
+    fetch_file: Callable[[str, str, str], Path] | None = None,
+) -> Path:
+    """Fetch every file a folder pointer lists, at its pinned revision, into `dest`, verifying each
+    sha256. `fetch_file(repo, path, revision)` defaults to `fetch` on the model repo."""
+    import shutil
+
+    def default(repo: str, path: str, revision: str) -> Path:
+        return fetch(repo, path, revision, repo_type=pointer.get("repo_type", "model"))
+
+    get = fetch_file or default
+    tmp = dest.with_name(f".tmp-{dest.name}")
+    shutil.rmtree(tmp, ignore_errors=True)
+    for rel, sha in pointer["files"].items():
+        src = get(pointer["repo"], f"{pointer['path']}/{rel}", pointer["revision"])
+        if _sha256(src) != sha:
+            raise HubError(f"{pointer['path']}/{rel}@{pointer['revision'][:8]}: sha256 mismatch")
+        (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, tmp / rel)
+    shutil.rmtree(dest, ignore_errors=True)
+    tmp.rename(dest)
+    return dest

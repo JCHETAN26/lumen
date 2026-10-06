@@ -172,9 +172,11 @@ class HFBackend:
         pin: ModelPin | None = None,
         stand_in: bool = False,
         image_longest_edge: int | None = None,
+        adapter: dict[str, Any] | None = None,
     ) -> None:
         self.name = name
         self.model = model.eval()
+        self.adapter = adapter  # a fine-tuned model: which LoRA adapter (run, epoch, revision)
         self.processor = processor
         self.processor.tokenizer.padding_side = "left"  # batched generation needs left padding
         _quiet_processor_kwargs_warning()
@@ -249,6 +251,8 @@ class HFBackend:
         }
         if self.image_longest_edge is not None:  # absent = the processor's own default
             d["image_longest_edge"] = self.image_longest_edge
+        if self.adapter is not None:
+            d["adapter"] = self.adapter
         return d
 
     def prepare(self, images: list[Image.Image], messages: list[list[dict]]) -> dict:

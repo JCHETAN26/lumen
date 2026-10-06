@@ -123,3 +123,36 @@ def test_pointer_for_an_existing_file(tmp_path) -> None:
     f.write_text('{"_header": {}}\n{"question_id": "q"}\n')
     p = hub.pointer("me/preds", "baseline/m/x.predictions.jsonl", "a" * 40, f)
     assert p["lines"] == 2 and len(p["sha256"]) == 64 and p["revision"] == "a" * 40
+
+
+def test_upload_folder_and_verified_download(tmp_path: Path) -> None:
+    api = FakeHubApi()
+    src = tmp_path / "adapter"
+    (src / "sub").mkdir(parents=True)
+    (src / "adapter_model.safetensors").write_bytes(b"weights")
+    (src / "sub" / "x.json").write_text("{}")
+    p = hub.upload_folder(api, "me/adapter", src, "runs/r/epoch-1", "msg")
+    assert p["repo_type"] == "model" and len(p["revision"]) == 40
+    assert p["files"] == hub.folder_digest(src) and set(p["files"]) == {
+        "adapter_model.safetensors",
+        "sub/x.json",
+    }
+
+    def fetch(repo, path, revision):
+        out = tmp_path / "cache" / path
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(api.model_files[path])
+        return out
+
+    dest = hub.download_folder(p, tmp_path / "dl" / "epoch-1", fetch_file=fetch)
+    assert hub.folder_digest(dest) == p["files"]
+    api.model_files["runs/r/epoch-1/adapter_model.safetensors"] = b"tampered"
+    with pytest.raises(hub.HubError, match="sha256 mismatch"):
+        hub.download_folder(p, tmp_path / "dl2", fetch_file=fetch)
+    assert not (tmp_path / "dl2").exists()  # nothing half-written
+
+
+def test_upload_folder_refuses_public_model_repo(tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    with pytest.raises(hub.HubError, match="PUBLIC"):
+        hub.upload_folder(FakeHubApi(private=False), "me/adapter", tmp_path / "a", "x", "m")

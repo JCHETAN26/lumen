@@ -121,7 +121,8 @@ class FakeHubApi:
         fail_upload: bool = False,
     ) -> None:
         self.private, self.exists, self.role, self.fail_upload = private, exists, role, fail_upload
-        self.files: dict[str, bytes] = {}
+        self.files: dict[str, bytes] = {}  # the predictions dataset repo
+        self.model_files: dict[str, bytes] = {}  # the adapter model repo
         self.commits = 0
 
     def repo_info(self, repo_id: str, repo_type: str):
@@ -131,8 +132,8 @@ class FakeHubApi:
         return type("Info", (), {"private": self.private, "sha": f"{self.commits:040x}"})()
 
     def list_repo_files(self, repo_id: str, repo_type: str, revision: str) -> list[str]:
-        assert repo_type == "dataset" and len(revision) == 40
-        return list(self.files)
+        assert len(revision) == 40
+        return list(self.files if repo_type == "dataset" else self.model_files)
 
     def whoami(self) -> dict:
         return {"auth": {"accessToken": {"role": self.role}}}
@@ -142,4 +143,15 @@ class FakeHubApi:
             raise ConnectionError("hub unreachable")
         self.commits += 1
         self.files[path_in_repo] = Path(path_or_fileobj).read_bytes()
+        return type("Commit", (), {"oid": f"{self.commits:040x}"})()
+
+    def upload_folder(self, *, folder_path, path_in_repo, repo_id, repo_type, commit_message):
+        assert repo_type == "model"
+        if self.fail_upload:
+            raise ConnectionError("hub unreachable")
+        self.commits += 1
+        root = Path(folder_path)
+        for f in root.rglob("*"):
+            if f.is_file():
+                self.model_files[f"{path_in_repo}/{f.relative_to(root)}"] = f.read_bytes()
         return type("Commit", (), {"oid": f"{self.commits:040x}"})()
