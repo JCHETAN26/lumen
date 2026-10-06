@@ -29,6 +29,16 @@ is the runner:
 | `pin_adapter` | 4 | **None** | Print the `configs/pins.yaml` entry for an epoch adapter (what the Mac downloads) |
 | `final_test` | final | GPU T4 | The single sealed test evaluation: dev-chosen fine-tune + matched zero-shot, once |
 
+## Batch sessions (Save Version)
+
+`batch_stage3.ipynb` runs Stage 3 prep and the sweep unattended (Save Version -> Save & Run All,
+GPU T4): it keeps the clone, VizWiz data, predictions, and checkpoints in `/kaggle/temp`, so the
+saved output holds only `lumen-results/`. All stages share one session deadline
+(`LUMEN_DEADLINE_UNIX`) and the week's quota measured at the session start (`kaggle quota` reports
+it now; set `GPU_HOURS_LEFT_AT_START`). Kaggle Secrets must be attached to the notebook in the
+editor (Add-ons -> Secrets): a version pushed through the API alone gets no secrets. Fetch the
+results with `kaggle kernels output <owner>/<notebook> --file-pattern 'lumen-results/.*'`.
+
 ## GPU quota guard
 
 Kaggle's GPU quota is weekly and its API does not report what's left. Every GPU stage therefore
