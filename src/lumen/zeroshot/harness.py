@@ -49,6 +49,8 @@ def predictions_header(backend: Backend, prompt_key: str, split: str) -> dict[st
         model["image_longest_edge"] = d["image_longest_edge"]
     if d.get("adapter") is not None:  # fine-tuned: the adapter is part of the model's identity
         model["adapter"] = d["adapter"]
+    if d.get("variant") is not None:  # on-device: the precision is too (fp16 / 8bit / 4bit)
+        model["variant"] = d["variant"]
     return {
         "model": model,
         "generation": d.get("generation"),

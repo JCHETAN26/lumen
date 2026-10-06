@@ -21,6 +21,7 @@ Stages (each writes result JSON under results/ and copies it to the download fol
     finetune_choice  pick the config and epoch on dev (lumen.train.selection)      (CPU only)
     finetune_compare  val table: fine-tuned seeds vs the matched zero-shot baseline, paired,
                 and the no-unanswerable ablation                                   (CPU only)
+    pin_adapter print the configs/pins.yaml entry for an epoch adapter (for the Mac) (CPU only)
 
     baseline    zero-shot baselines (Stage 2) for the pinned models on dev or val        (GPU)
                 --dry-run prints the GPU-hour plan without loading anything
@@ -2427,6 +2428,41 @@ def cmd_finetune_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- pin_adapter
+
+
+def cmd_pin_adapter(args: argparse.Namespace) -> int:
+    """Print the configs/pins.yaml `adapters:` entry for one run's epoch adapter (no GPU, no
+    upload). The Mac (Stage 4) downloads an adapter only through such a pin: exact Hub commit and
+    every file's sha256."""
+    import yaml
+
+    spec, pointer = _epoch_adapter(args.run, args.epoch, "")
+    if pointer.get("revision") is None:
+        raise SystemExit("this adapter was never uploaded (a smoke run?); nothing to pin")
+    cfg = spec["config"]
+    entry = {
+        f"{args.run}-e{args.epoch}": {
+            "repo": pointer["repo"],
+            "revision": pointer["revision"],
+            "path": pointer["path"],
+            "base": spec["model"]["model_key"],
+            "run": args.run,
+            "epoch": args.epoch,
+            "step": pointer["step"],
+            "spec_sha256": hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest(),
+            "image_longest_edge": cfg["image_longest_edge"],
+            "prompt_key": cfg["prompt_key"],
+            "license": "apache-2.0",
+            "role": "fine-tuned LoRA adapter (Stage 3)",
+            "files": dict(sorted(pointer["files"].items())),
+        }
+    }
+    print("# add under `adapters:` in configs/pins.yaml")
+    print(yaml.safe_dump(entry, sort_keys=False).rstrip())
+    return 0
+
+
 # -------------------------------------------------------------------------- storage_check
 
 
@@ -2589,6 +2625,10 @@ def main() -> int:
     fp = sub.add_parser("finetune_compare", help="val table vs the zero-shot baseline (CPU)")
     fp.add_argument("--smoke", action="store_true", help="compare smoke runs (pipeline)")
     fp.set_defaults(fn=cmd_finetune_compare)
+    pa = sub.add_parser("pin_adapter", help="print the pins.yaml entry for an epoch adapter")
+    pa.add_argument("--run", type=_run_name_arg, required=True)
+    pa.add_argument("--epoch", type=int, required=True)
+    pa.set_defaults(fn=cmd_pin_adapter)
     args = parser.parse_args()
     return args.fn(args)
 

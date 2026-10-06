@@ -15,8 +15,10 @@ No results yet: every number will come from a script, with a baseline and hardwa
 ```
 configs/pins.yaml   dataset files (size, sha256) and model revisions (commit SHAs)
 configs/splits/     committed question-ID lists (dev split, Mac sample)
-src/lumen/          eval/ (official VizWiz metrics), data/ (download, annotations, splits, images)
+src/lumen/          eval/ (official VizWiz metrics), data/ (download, annotations, splits, images),
+                    zeroshot/ and train/ (Kaggle), ondevice/ (MLX on the Mac)
 kaggle/             notebook runner for all downloads, baselines, and training (Tesla T4)
+scripts/            Mac scripts (Stage 4: docs/mac.md) and the predictions guard
 tests/              unit tests; tests/live/ calls real services and skips on usage caps
 results/            result JSONs, each with commit, hardware, and library versions
 ```
@@ -35,7 +37,8 @@ Model prediction files never enter git: they can repeat private details from use
 are stored in a private Hugging Face dataset, and results here keep only aggregate scores plus a
 pinned pointer. A pre-commit hook and CI (`scripts/check_no_predictions.py`) enforce this.
 
-GPU work runs on Kaggle: see [`kaggle/README.md`](kaggle/README.md).
+GPU work runs on Kaggle: see [`kaggle/README.md`](kaggle/README.md). On-device work (MLX on the
+M2 Air) is in [`docs/mac.md`](docs/mac.md).
 
 ## Dataset: VizWiz-VQA
 

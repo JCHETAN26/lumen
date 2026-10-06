@@ -140,7 +140,11 @@ dev evals, 4-8 h of replicates, ~1.5 h of val evals; rescaled by the speed test 
 **Done when:** fine-tuned vs. zero-shot 500M (and the other baselines) on val, with seeds and CIs;
 adapter pinned.
 
-## Stage 4: 4-bit quantization and on-device benchmarks (Mac)
+## Stage 4: 4-bit quantization and on-device benchmarks (Mac) (code done; runs after Stage 3)
+
+Status 2026-10-06: `scripts/mac_prepare.py` (merge + MLX fp16/8bit/4bit) and `scripts/mac_bench.py`
+(self-test, bench, summary) written; non-MLX logic unit-tested; MLX code verified only by the
+self-test on the Mac. Runbook: `docs/mac.md`.
 
 - Add the MLX group (mlx, mlx-vlm). Download the pinned base model + adapter; merge; convert to
   MLX at fp16, 8-bit, and 4-bit (group size 64).

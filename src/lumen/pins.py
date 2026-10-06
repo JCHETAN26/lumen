@@ -85,3 +85,25 @@ def load_pins(path: Path = PINS_PATH) -> Pins:
         dev_select_size=int(splits["dev_select_size"]),
         raw=raw,
     )
+
+
+ADAPTER_FIELDS = ("repo", "revision", "path", "base", "files", "image_longest_edge", "prompt_key")
+
+
+def adapter_pointer(key: str, pins: Pins | None = None) -> dict[str, Any]:
+    """A pinned LoRA adapter as a verified-download pointer (`lumen.hub.download_folder`), plus
+    what it needs at inference: its base model key, image long edge, and prompt."""
+    pins = pins or load_pins()
+    entry = (pins.raw.get("adapters") or {}).get(key)
+    if entry is None:
+        raise PinError(f"no adapter {key!r} in configs/pins.yaml (pinned: {sorted(pins.adapters)})")
+    missing = [f for f in ADAPTER_FIELDS if f not in entry]
+    if missing:
+        raise PinError(f"adapter {key}: missing {missing}")
+    _model(key, entry)  # full commit SHA
+    if entry["base"] not in pins.models:
+        raise PinError(f"adapter {key}: base {entry['base']!r} is not a pinned model")
+    files = entry["files"]
+    if not files or not all(_SHA256.match(str(v)) for v in files.values()):
+        raise PinError(f"adapter {key}: every file needs a sha256")
+    return {**entry, "repo_type": "model", "key": key}

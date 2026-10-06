@@ -2,6 +2,27 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-06: Stage 4 code (Mac): merge, quantize, self-test, benchmark
+
+Written before any adapter exists, on Linux, so the MLX calls can't run here. To keep that risk
+visible: everything that doesn't touch MLX (sample checks, latency and agreement stats, the
+thermal guard, the accuracy/latency/summary flow with a fake backend, adapter pins) is unit-tested,
+and `scripts/mac_bench.py self-test` checks the MLX code itself on the Mac before any benchmark
+counts (cached vs uncached P(unanswerable); prompt token IDs vs the transformers processor).
+
+Decisions, from reading mlx-vlm 0.7.3's source:
+- **Merge with peft, then convert.** mlx-vlm's `adapter_path` expects its own LoRA format, so the
+  PEFT adapter is merged into the fp32 base on the CPU and saved as fp16 before conversion.
+- **Image size is set on the processor.** mlx-vlm passes no size kwargs to the SmolVLM image
+  processor, so the 1,024 px cap is set on `image_processor.size` (validated as on Kaggle). The
+  self-test's token-ID comparison catches a wrong tiling.
+- **Quantization's cost is measured against MLX fp16**, not Kaggle: mlx-vlm leaves the vision
+  encoder unquantized and its SmolVLM processor uses the slow PIL image path.
+- **Adapters reach the Mac only through a pin** (`pin_adapter` prints the `adapters:` entry: Hub
+  commit and every file's sha256; `lumen.pins.adapter_pointer` validates it).
+- **On-device outputs**: scores and agreement rates only in results; the prediction files stay in
+  the gitignored `predictions/mac/`.
+
 ## 2026-10-06: Stage 3 code: training runs, evaluation, and the dev choice rule
 
 **Sweep and rule, fixed before any fine-tuning result** (`lumen.train.selection.RULE`): learning
