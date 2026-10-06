@@ -1033,14 +1033,37 @@ def _long_edge_arg(value: str) -> int | str:
     return n
 
 
+RESOLUTION_OVERRIDE = "resolution_override.yaml"  # under configs/
+
+
 def _chosen_long_edge() -> int:
+    """The rule's choice from the newest resolution_choice result, unless a committed override
+    (configs/resolution_override.yaml, a documented deviation) replaces it. The override must name
+    the rule's choice it replaces, so it can't silently outlive a rerun that changes the rule's
+    answer."""
+    import yaml
+
     files = _result_files(RESULTS / PREP_DIR, "resolution_choice")
     if not files:
         raise SystemExit(
             "no resolution choice yet: run the dev probe at every long edge, then the "
             "resolution_choice stage (and commit its result)"
         )
-    return int(json.loads(files[-1].read_text())["chosen"]["long_edge"])
+    rule = int(json.loads(files[-1].read_text())["chosen"]["long_edge"])
+    override_path = REPO_ROOT / "configs" / RESOLUTION_OVERRIDE
+    if not override_path.exists():
+        return rule
+    o = yaml.safe_load(override_path.read_text())
+    if int(o["rule_choice"]) != rule:
+        raise SystemExit(
+            f"{override_path.name} overrides a rule choice of {o['rule_choice']} px, but the "
+            f"newest resolution_choice result chose {rule} px: review and update the override"
+        )
+    long_edge = int(o["long_edge"])
+    if long_edge not in PORTRAIT_TILES or not str(o.get("reason", "")).strip():
+        raise SystemExit(f"{override_path.name}: needs a valid long_edge and a reason")
+    print(f"resolution: {long_edge} px, overriding the rule's {rule} px ({override_path.name})")
+    return long_edge
 
 
 def _resolve_long_edge(value: int | str | None, models: list[str]) -> int | None:
@@ -1095,8 +1118,9 @@ def cmd_resolution_choice(args: argparse.Namespace) -> int:
     from lumen.eval.answerability import evaluate_answerability
     from lumen.eval.bootstrap import bootstrap_ci
     from lumen.eval.vizwiz_metric import evaluate_accuracy
+    from lumen.zeroshot.extract import UNANSWERABLE
     from lumen.zeroshot.harness import question_ids_sha256
-    from lumen.zeroshot.resolution import RULE, choose_long_edge
+    from lumen.zeroshot.resolution import RULE, abstention_breakdown, choose_long_edge
 
     warn_if_gpu_attached("resolution_choice")
     prompt, selection = _dev_selected_prompt(PROBE_MODEL)
@@ -1128,13 +1152,15 @@ def cmd_resolution_choice(args: argparse.Namespace) -> int:
     def ap(labels: np.ndarray, scores: np.ndarray) -> float:
         return evaluate_answerability(labels, scores).average_precision
 
-    scored = {}
+    scored, breakdowns = {}, {}
     for le in edges:
         preds = _probe_predictions(docs[le][1], prompt, _resolve(le))
         acc = evaluate_accuracy({q: p["answer"] for q, p in preds.items()}, records)
         a = np.array([100 * acc.per_question[q] for q in ids])
         s = np.array([1.0 - preds[q]["p_unanswerable"] for q in ids])
+        said = np.array([preds[q]["answer"].strip().lower() == UNANSWERABLE for q in ids])
         scored[le] = (acc, a, s)
+        breakdowns[le] = abstention_breakdown(y, said, a)
 
     choice = choose_long_edge({le: a for le, (_, a, _) in scored.items()})
     best = choice["best"]
@@ -1153,6 +1179,7 @@ def cmd_resolution_choice(args: argparse.Namespace) -> int:
             "portrait_tiles": PORTRAIT_TILES[le],
             "image_tokens": d.get("image_tokens"),
             "sec_per_question": (d.get("run") or {}).get("sec_per_question"),
+            "answerable_breakdown": breakdowns[le],  # reported, not decisive (see the rule)
         }
         if le != best:
             arm["vs_best"] = {
@@ -1209,6 +1236,15 @@ def cmd_resolution_choice(args: argparse.Namespace) -> int:
             f"{r['long_edge']:>9}{r['portrait_tiles']:>7}{r['accuracy_official']:>8.2f}"
             f"{diff:>24}{ok:>4}{r['average_precision']:>8.2f}{ap_diff:>12}"
             f"{spq if spq is not None else float('nan'):>8.3f}"
+        )
+    print("answerable questions only: says-unanswerable %, credit from 'unanswerable' / from real")
+    print("answers, accuracy when it answers (reported, not decisive):")
+    for r in arms:
+        b = r["answerable_breakdown"]
+        print(
+            f"{r['long_edge']:>9}  {b['says_unanswerable']:5.1f}%  "
+            f"{b['credit_from_unanswerable']:6.2f}  {b['credit_from_answers']:6.2f}  "
+            f"{b['accuracy_when_answering']:6.2f}  (n={b['n']})"
         )
     print(
         f"best: {best} px; chosen: {chosen['long_edge']} px (smallest long edge whose CI lower "

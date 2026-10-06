@@ -71,3 +71,28 @@ def choose_long_edge(
         "margin_points": margin,
         "vs_best": vs_best,
     }
+
+
+def abstention_breakdown(
+    answerable: np.ndarray, said_unanswerable: np.ndarray, per_question: np.ndarray
+) -> dict[str, float | int]:
+    """Where an arm's credit on *answerable* questions comes from (all in percent, over them).
+
+    VizWiz answerable questions often have a few "unanswerable" human answers, so a model that
+    abstains more also earns partial credit there. Splitting that credit from the credit for real
+    answers shows whether a resolution helps the model see or only makes it abstain more.
+    """
+    mask = np.asarray(answerable) == 1
+    n = int(mask.sum())
+    if n == 0:
+        raise ValueError("no answerable questions")
+    said = np.asarray(said_unanswerable, dtype=bool)[mask]
+    acc = np.asarray(per_question, dtype=float)[mask]
+    answered = int((~said).sum())
+    return {
+        "n": n,
+        "says_unanswerable": float(100 * said.mean()),
+        "credit_from_unanswerable": float(acc[said].sum() / n),
+        "credit_from_answers": float(acc[~said].sum() / n),
+        "accuracy_when_answering": float(acc[~said].mean()) if answered else float("nan"),
+    }

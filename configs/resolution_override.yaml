@@ -1,0 +1,18 @@
+# Stage 3 image resolution: a documented deviation from the pre-registered rule
+# (lumen.zeroshot.resolution.RULE). Details and numbers: docs/devlog.md, 2026-10-05, and the
+# answerable breakdown in results/stage3_prep/resolution_choice*.json.
+#
+# `--long-edge chosen` uses `long_edge` below. It refuses if the newest resolution_choice result no
+# longer chose `rule_choice`, so this file can't silently outlive a change in the rule's answer.
+long_edge: 1024
+rule_choice: 512
+decided: 2026-10-05
+data_used: dev only (all 2,052 dev questions); no val or test data
+reason: >-
+  The rule maximizes zero-shot dev accuracy, and 512 px won it by abstaining, not by answering
+  better: it says "unanswerable" to about a fifth of answerable questions (about 6% at the other
+  resolutions), and its credit from real answers is the lowest of the four arms. On the questions
+  the model does answer, 1,024 px scores best, with 2.6x fewer image tokens than 2,048 px.
+  Fine-tuning teaches abstention directly, so 512's zero-shot advantage is not expected to carry
+  over, while its lost image detail would. Decided after seeing dev results; recorded as a
+  deviation.

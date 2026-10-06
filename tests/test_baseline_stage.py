@@ -425,6 +425,11 @@ def test_resolution_choice_takes_best_accuracy_then_fewest_tokens(degrading: Pat
     assert "vs_default" not in arms[2048]
     assert doc["rule"].startswith("best = highest dev accuracy") and doc["n"] == 10
     assert doc["split"] == "dev" and arms[2048]["result"].endswith("dev-abstain.json")
+    b = arms[512]["answerable_breakdown"]
+    assert (
+        b["n"] > 0
+        and b["credit_from_answers"] < arms[1024]["answerable_breakdown"]["credit_from_answers"]
+    )
     assert (degrading / "download" / "stage3_prep" / "resolution_choice.json").exists()
     assert "chosen: 1024 px" in capsys.readouterr().out
     # The matched-resolution val run picks the choice up by name.
@@ -494,3 +499,35 @@ def test_chosen_default_resolution_runs_nothing(ready: Path, monkeypatch, capsys
         run_stages.cmd_baseline(args(split="val", prompt="dev-selected", long_edge="chosen")) == 0
     )
     assert "nothing to run" in capsys.readouterr().out
+
+
+def override(env: Path, **kw) -> None:
+    fields = {"long_edge": 1536, "rule_choice": 1024, "reason": "documented deviation"} | kw
+    (env / "configs").mkdir(exist_ok=True)
+    (env / "configs" / "resolution_override.yaml").write_text(
+        "".join(f"{k}: {v}\n" for k, v in fields.items())
+    )
+
+
+def test_committed_override_replaces_the_rules_choice(degrading: Path, capsys) -> None:
+    probe()
+    assert run_stages.cmd_resolution_choice(argparse.Namespace()) == 0  # the rule: 1,024
+    override(degrading)
+    assert (
+        run_stages.cmd_baseline(args(split="val", prompt="dev-selected", long_edge="chosen")) == 0
+    )
+    assert "1536 px, overriding the rule's 1024 px" in capsys.readouterr().out
+    assert (
+        result(degrading, "smolvlm2-500m", "val-abstain-le1536.json")["image_longest_edge"] == 1536
+    )
+
+
+def test_override_must_match_the_rules_current_choice(degrading: Path) -> None:
+    probe()
+    assert run_stages.cmd_resolution_choice(argparse.Namespace()) == 0
+    override(degrading, rule_choice=512)
+    with pytest.raises(SystemExit, match="review and update the override"):
+        run_stages._chosen_long_edge()
+    override(degrading, reason="''")
+    with pytest.raises(SystemExit, match="needs a valid long_edge and a reason"):
+        run_stages._chosen_long_edge()

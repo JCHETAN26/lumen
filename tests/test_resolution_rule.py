@@ -68,3 +68,18 @@ def test_rule_text_records_the_margin() -> None:
 def test_bad_input(arms) -> None:
     with pytest.raises(ValueError):
         choose_long_edge(arms)
+
+
+def test_abstention_breakdown_splits_credit_on_answerable_questions() -> None:
+    from lumen.zeroshot.resolution import abstention_breakdown
+
+    answerable = np.array([1, 1, 1, 1, 0])
+    said = np.array([True, False, False, True, True])
+    per_q = np.array([33.3, 100.0, 0.0, 0.0, 100.0])  # the unanswerable question is excluded
+    b = abstention_breakdown(answerable, said, per_q)
+    assert b["n"] == 4 and b["says_unanswerable"] == pytest.approx(50.0)
+    assert b["credit_from_unanswerable"] == pytest.approx(33.3 / 4)
+    assert b["credit_from_answers"] == pytest.approx(100.0 / 4)
+    assert b["accuracy_when_answering"] == pytest.approx(50.0)
+    with pytest.raises(ValueError):
+        abstention_breakdown(np.array([0]), np.array([True]), np.array([1.0]))

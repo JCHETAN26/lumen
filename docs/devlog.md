@@ -2,6 +2,49 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-05: Resolution probe: the rule picked 512 px; overridden to 1,024 px (deviation)
+
+**Probe** (SmolVLM2-500M zero-shot, abstain prompt, all 2,052 dev questions;
+`results/stage3_prep/resolution_choice*.json` and `results/baseline/smolvlm2-500m/dev-abstain*.json`):
+
+| Long edge | Accuracy [95% CI] | AP | Said unanswerable | s/question (T4) |
+|---|---|---|---|---|
+| 2,048 | 30.14 [28.34, 31.89] | 47.88 | 10.5% | 0.648 |
+| 1,536 | 30.63 [28.86, 32.26] | 48.79 | 11.1% | 0.511 |
+| 1,024 | 31.88 [30.09, 33.65] | 49.06 | 11.4% | 0.293 |
+| 512 | 40.01 [38.00, 41.86] | 44.88 | 30.2% | 0.132 |
+
+The pre-registered rule chose **512 px**: it is the best arm, and every other arm's paired CI vs it
+is 6-12 points below (far outside the 2-point margin). The probe used 0.91 GPU h (prior 1.68).
+
+**Why 512 won: abstention, not seeing.** On answerable questions only (n = 1,499; reported by
+`resolution_choice` as `answerable_breakdown`):
+
+| Long edge | Says "unanswerable" | Credit from "unanswerable" | Credit from real answers | Accuracy when it answers |
+|---|---|---|---|---|
+| 2,048 | 5.7% | 2.52 | 28.42 | 30.13 |
+| 1,536 | 6.1% | 2.72 | 28.47 | 30.31 |
+| 1,024 | 6.3% | 2.74 | 30.09 | 32.10 |
+| 512 | 21.2% | 9.18 | 24.58 | 31.19 |
+
+At 512 px (one 64-token tile) the model abstains three times as often, which earns credit on the
+27% of dev that is unanswerable (accuracy there 57 vs 28-29) and partial credit on answerable
+questions that some annotators marked unanswerable. Its credit from real answers is the lowest of
+all arms, and AP is the lowest too (it abstains more, not more accurately). By answer type 512 is
+also worst on number (37 vs 48 at 1,024) and yes/no (44 vs 50), best only on other (33.0 vs 31.4).
+
+**Decision (2026-10-05, after seeing dev results): use 1,024 px.** On the questions the model
+answers, 1,024 px is best, with 2.6x fewer image tokens than 2,048. Fine-tuning teaches abstention
+directly, so 512's zero-shot edge isn't expected to survive training, while its lost image detail
+would: a bad trade for users who need labels and small text read. This is a **deviation from the
+pre-registered rule**, recorded in `configs/resolution_override.yaml`; `--long-edge chosen` honors it
+and refuses if the rule's recorded choice changes. Only dev data was used; val and test were not
+looked at. The rule's flaw, in hindsight: zero-shot accuracy rewards abstention, so a resolution
+rule should have used credit from real answers (or AP) alongside accuracy. Reported as a weakness.
+
+**Also:** the Kaggle machine restarted mid-session (working directory reset, GPU venv in /tmp
+lost, files in /kaggle/working kept), so cells 1 -> 2 -> 3 must be rerun after any restart.
+
 ## 2026-10-05: SmolVLM2-500M result files lost with the Kaggle session; rebuilt from the Hub
 
 **What went wrong.** The SmolVLM2-500M runs (prompt choice on dev_select, then val) completed on
