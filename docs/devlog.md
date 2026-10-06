@@ -2,6 +2,29 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-06: Stage 5: the app, and three things it deliberately doesn't do
+
+Built a localhost-only answer server (FastAPI) and a React + TypeScript page, tested with the fake
+answerer: component tests with axe, and Playwright end-to-end tests on the built page with the real
+server (answer and can't-tell flows, keyboard only, the camera with a synthetic device, axe WCAG
+2.2 AA in light and dark mode).
+
+**Not built, on purpose:**
+- *Voice input in the page.* Chrome's Web Speech API streams audio to Google's servers, which
+  breaks "nothing leaves the device". macOS Dictation works in the question field instead.
+- *"Why" for unanswerable photos* (blur, framing, light). The model only says "unanswerable";
+  inventing a reason would be guessing. The app gives general tips, labeled as tips.
+- *Spoken answers by default.* VoiceOver already reads the live region; the read-aloud setting
+  is off unless turned on.
+
+**Found by the end-to-end tests:** the camera moved focus to "Take photo" before React had
+re-rendered it as enabled, so focus went nowhere and keyboard users lost their place. Focus now
+goes to "Close camera" at once, then to "Take photo" when the camera is ready.
+
+**Security:** a page on another site can POST to localhost. The server rejects other Host headers
+(DNS rebinding) and requires an `X-Lumen` header (forms can't set it; no CORS is granted), under a
+strict CSP. Photos and questions are never written or logged.
+
 ## 2026-10-06: Stage 4 code (Mac): merge, quantize, self-test, benchmark
 
 Written before any adapter exists, on Linux, so the MLX calls can't run here. To keep that risk

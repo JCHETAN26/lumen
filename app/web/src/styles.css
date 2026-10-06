@@ -1,0 +1,186 @@
+/* Lumen: WCAG 2.2 AA. High-contrast tokens for light and dark, visible focus everywhere,
+   44 px targets, no meaning carried by color alone (errors say "Error:"), reduced motion. */
+
+:root {
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #3d3d3d;
+  --accent: #0b4fb3;
+  --accent-fg: #ffffff;
+  --error: #a4141e;
+  --border: #5c5c5c;
+  --focus: #0b4fb3;
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 112.5%;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111111;
+    --fg: #f2f2f2;
+    --muted: #cfcfcf;
+    --accent: #8ab4ff;
+    --accent-fg: #0a0a0a;
+    --error: #ff9b9b;
+    --border: #a8a8a8;
+    --focus: #8ab4ff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+h1 {
+  font-size: 2rem;
+  margin: 0 0 0.5rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  margin: 2rem 0 0.5rem;
+}
+
+.lede,
+.help {
+  color: var(--muted);
+}
+
+.help {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+button,
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.5rem 1.1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  font-size: 1.15rem;
+  padding: 0.6rem 2rem;
+}
+
+button[aria-disabled="true"],
+button:disabled {
+  cursor: progress;
+  opacity: 0.85;
+}
+
+label {
+  font-weight: 600;
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+}
+
+textarea[aria-invalid="true"] {
+  border-color: var(--error);
+  border-width: 3px;
+}
+
+:focus-visible,
+.file-button:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.check {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 400;
+}
+
+.check input {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.error {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.photo img,
+.camera-view {
+  display: block;
+  max-width: 100%;
+  max-height: 20rem;
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.answer-text {
+  min-height: 3rem;
+}
+
+.result-main {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0.25rem 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

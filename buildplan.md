@@ -164,7 +164,13 @@ self-test on the Mac. Runbook: `docs/mac.md`.
 **Done when:** accuracy and latency tables for fp16 / 8-bit / 4-bit on the Mac, the final test
 record committed.
 
-## Stage 5: The accessible app
+## Stage 5: The accessible app (built and tested with a fake answerer; needs the model and a VoiceOver pass)
+
+Status 2026-10-06: `lumen.app.server` (localhost-only API + static page) and `app/web` (React +
+TypeScript) built; jsx-a11y, Vitest + axe, and Playwright end-to-end (keyboard, camera, axe AA in
+light and dark) run in CI. Left: run it with the quantized model on the Mac, the manual VoiceOver
+pass (`docs/app.md`), and the demo video. Not built: in-app speech recognition (it would send audio
+off the device) and "why" reasons for unanswerable photos (the model doesn't predict them).
 
 - React + TypeScript front end, talking to a local MLX inference server on the Mac.
 - Screen-reader-first: capture or pick a photo, ask by voice or text, and get the answer spoken

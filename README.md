@@ -19,6 +19,7 @@ src/lumen/          eval/ (official VizWiz metrics), data/ (download, annotation
                     zeroshot/ and train/ (Kaggle), ondevice/ (MLX on the Mac)
 kaggle/             notebook runner for all downloads, baselines, and training (Tesla T4)
 scripts/            Mac scripts (Stage 4: docs/mac.md) and the predictions guard
+app/web/            the accessible web app (Stage 5: docs/app.md); src/lumen/app/ is its server
 tests/              unit tests; tests/live/ calls real services and skips on usage caps
 results/            result JSONs, each with commit, hardware, and library versions
 ```
@@ -38,7 +39,7 @@ are stored in a private Hugging Face dataset, and results here keep only aggrega
 pinned pointer. A pre-commit hook and CI (`scripts/check_no_predictions.py`) enforce this.
 
 GPU work runs on Kaggle: see [`kaggle/README.md`](kaggle/README.md). On-device work (MLX on the
-M2 Air) is in [`docs/mac.md`](docs/mac.md).
+M2 Air) is in [`docs/mac.md`](docs/mac.md); the app is in [`docs/app.md`](docs/app.md).
 
 ## Dataset: VizWiz-VQA
 

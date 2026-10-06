@@ -33,8 +33,8 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
-      - name: Install (core + dev, from uv.lock)
-        run: uv sync --frozen
+      - name: Install (core + dev + the local app server, from uv.lock)
+        run: uv sync --frozen --group app
 
       - name: Lint
         run: uv run ruff check .
@@ -45,3 +45,40 @@ jobs:
       # Live tests call external services and are excluded here; they skip on usage caps when run locally.
       - name: Unit tests
         run: uv run pytest -m "not live"
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+
+      - name: Install
+        run: npm ci && (cd ../.. && uv sync --frozen --group app)
+
+      - name: Lint (incl. jsx-a11y strict) and typecheck
+        run: npm run lint && npm run typecheck
+
+      - name: Unit tests (incl. axe)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # The built page against the real local server (fake answerer) in Chromium: flows, keyboard
+      # only, camera, and axe WCAG 2.2 AA checks in light and dark mode.
+      - name: End-to-end tests
+        run: npx playwright install --with-deps chromium && npm run e2e

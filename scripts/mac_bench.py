@@ -21,7 +21,6 @@ import argparse
 import json
 import resource
 import sys
-import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -34,60 +33,17 @@ from lumen.ondevice.bench import (  # noqa: E402
     summarize,
     wait_until_cool,
 )
+from lumen.ondevice.models import load_backend  # noqa: E402
 from lumen.ondevice.sample import load_mac_sample  # noqa: E402
 from lumen.ondevice.variants import VARIANTS, size_on_disk  # noqa: E402
-from lumen.pins import SPLITS_DIR, adapter_pointer, load_pins  # noqa: E402
+from lumen.pins import SPLITS_DIR, load_pins  # noqa: E402
 from lumen.runmeta import hardware_info, write_result  # noqa: E402
 from lumen.zeroshot.prompts import chat_messages  # noqa: E402
 
-MODELS = REPO_ROOT / "models"
 SAMPLE_DIR = REPO_ROOT / "data" / "mac_sample"
 PRED_DIR = REPO_ROOT / "predictions" / "mac"
 RESULTS = REPO_ROOT / "results" / "mac"
 SELF_TEST_TOLERANCE = 2e-3  # absolute, on a probability (fp16 cache vs uncached recompute)
-
-
-def model_settings(key: str) -> dict:
-    pins = load_pins()
-    if key == "base":
-        pin = pins.models["smolvlm2-500m"]
-        override = REPO_ROOT / "configs" / "resolution_override.yaml"
-        import yaml
-
-        long_edge = int(yaml.safe_load(override.read_text())["long_edge"])
-        return {
-            "describe": {"model_key": pin.key, "repo": pin.repo, "revision": pin.revision},
-            "long_edge": long_edge,
-            "prompt_key": "abstain",  # SmolVLM2-500M's dev_select choice
-        }
-    a = adapter_pointer(key, pins)
-    pin = pins.models[a["base"]]
-    return {
-        "describe": {
-            "model_key": pin.key,
-            "repo": pin.repo,
-            "revision": pin.revision,
-            "adapter": {k: a[k] for k in ("key", "revision", "path")},
-        },
-        "long_edge": a["image_longest_edge"],
-        "prompt_key": a["prompt_key"],
-    }
-
-
-def load_backend(key: str, variant: str):
-    from lumen.ondevice.mlx_backend import MLXBackend
-
-    s = model_settings(key)
-    path = MODELS / "mlx" / key / variant
-    if not path.is_dir():
-        raise SystemExit(f"{path} missing: run scripts/mac_prepare.py first")
-    t0 = time.perf_counter()
-    backend = MLXBackend.load(
-        path,
-        describe={**s["describe"], "variant": variant},
-        image_longest_edge=s["long_edge"],
-    )
-    return backend, s, time.perf_counter() - t0, path
 
 
 def newest(stem: str) -> dict | None:
