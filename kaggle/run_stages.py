@@ -1738,7 +1738,10 @@ def cmd_train(args: argparse.Namespace) -> int:
     synced: dict = {"path": str(local) if local is not None else None, "pointer": None}
     upload_errors: list[str] = []
     t0 = time.monotonic()
-    session_limit_s = args.session_hours * 3600
+    stop_at = SESSION_START + args.session_hours * 3600
+    deadline = os.environ.get("LUMEN_DEADLINE_UNIX")  # a batch session's end, shared by stages
+    if deadline:
+        stop_at = min(stop_at, time.monotonic() + float(deadline) - time.time())
 
     def sync_checkpoint(path_str: str | None) -> None:
         if smoke or path_str is None or path_str == synced["path"]:
@@ -1781,8 +1784,8 @@ def cmd_train(args: argparse.Namespace) -> int:
                 except BudgetExceeded as e:
                     print(f"STOPPING (budget): {e}")
                     raise StopTraining("budget") from e
-        if time.monotonic() - SESSION_START > session_limit_s and step < target_step:
-            print(f"STOPPING (session limit {args.session_hours:g} h): the next session resumes")
+        if time.monotonic() > stop_at and step < target_step:
+            print("STOPPING (session time limit): the next session resumes from the Hub")
             raise StopTraining("session limit")
 
     status, segments, epochs_out = "completed", [], []
@@ -2827,7 +2830,8 @@ def main() -> int:
         "--session-hours",
         type=float,
         default=11.0,
-        help="stop cleanly (checkpoint uploaded) after this long; Kaggle ends sessions at 12 h",
+        help="stop cleanly (checkpoint uploaded) after this long; Kaggle ends sessions at 12 h. "
+        "LUMEN_DEADLINE_UNIX (a batch session's end, epoch seconds) can stop it sooner",
     )
     tr.add_argument("--limit", type=int, default=None, help="smoke run on the first N train_fit")
     tr.add_argument("--stand-in", action="store_true", help="tiny random-weight model (pipeline)")

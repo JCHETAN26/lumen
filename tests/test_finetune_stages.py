@@ -392,3 +392,21 @@ def test_stand_in_resumes_from_the_hub_after_the_disk_is_wiped(ready: Path, monk
     shutil.rmtree(ready / "results" / "finetune")
     spec2, pointer2 = run_stages._epoch_adapter("lr2e-4", 1, "")
     assert spec2 == spec and pointer2["files"] == e1["adapter"]["files"]
+
+
+def test_stand_in_stops_at_a_shared_deadline(ready: Path, monkeypatch) -> None:
+    needs_torch()
+    import time
+
+    from conftest import skip_on_usage_cap
+
+    monkeypatch.setenv("LUMEN_DEADLINE_UNIX", str(time.time() - 1))  # already past
+    with skip_on_usage_cap("Hugging Face"):
+        code = run_stages.cmd_train(targs())
+    assert code == run_stages.EXIT_BUDGET
+    r = result(ready, "lr2e-4", "train.json")
+    assert r["status"] == "stopped:session limit" and r["session"]["final_step"] == 1
+    monkeypatch.delenv("LUMEN_DEADLINE_UNIX")
+    with skip_on_usage_cap("Hugging Face"):
+        assert run_stages.cmd_train(targs()) == 0  # resumes from step 1
+    assert result(ready, "lr2e-4", "train.1.json")["session"]["start_step"] == 1
