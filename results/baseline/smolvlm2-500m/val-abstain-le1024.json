@@ -1,0 +1,245 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-07T00:11:55+00:00",
+    "git": {
+      "commit": "340eb1a93a23b06a4d44efa4bf271667c17d9c62",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.18.48+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        1.11,
+        1.22,
+        1.09
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+      "memory_gib": 31.3,
+      "gpus": [
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        },
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        }
+      ],
+      "kaggle": true
+    },
+    "python": "3.13.15",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0+cu126",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "baseline",
+      "--model",
+      "smolvlm2-500m",
+      "--split",
+      "val",
+      "--prompt",
+      "dev-selected",
+      "--long-edge",
+      "chosen",
+      "--gpu-hours-left",
+      "22.86"
+    ]
+  },
+  "stage": "baseline",
+  "status": "completed",
+  "error": null,
+  "smoke": false,
+  "model": {
+    "backend": "transformers",
+    "model_key": "smolvlm2-500m",
+    "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+    "stand_in": false,
+    "parameters": 507482304,
+    "dtype": "float16",
+    "device": "cuda",
+    "cuda_device": "Tesla T4",
+    "generation": {
+      "max_new_tokens": 16,
+      "do_sample": false,
+      "num_beams": 1,
+      "repetition_penalty": 1.0
+    },
+    "unanswerable_token_variants": [
+      [
+        419,
+        11247,
+        515
+      ],
+      [
+        551,
+        11247,
+        515
+      ],
+      [
+        810,
+        11247,
+        515
+      ],
+      [
+        3706,
+        11247,
+        515
+      ]
+    ],
+    "image_longest_edge": 1024
+  },
+  "split": "val",
+  "prompt": {
+    "model": {
+      "model_key": "smolvlm2-500m",
+      "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+      "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+      "stand_in": false,
+      "backend": "transformers",
+      "image_longest_edge": 1024
+    },
+    "generation": {
+      "max_new_tokens": 16,
+      "do_sample": false,
+      "num_beams": 1,
+      "repetition_penalty": 1.0
+    },
+    "prompt_key": "abstain",
+    "prompt_template": "{question}\nAnswer the question using a single word or phrase. If the photo cannot answer the question (for example, it is too blurry or dark, or the object is out of frame), answer exactly: unanswerable",
+    "prompt_version": "v1",
+    "extractor_version": "v1",
+    "split": "val"
+  },
+  "prompt_selection": {
+    "rule": "max dev_select accuracy; ties by AP, then name",
+    "split": "dev_select",
+    "dev": {
+      "plain": {
+        "file": "results/baseline/smolvlm2-500m/dev_select-plain.json",
+        "accuracy": 24.921875,
+        "average_precision": 42.31084428458228
+      },
+      "abstain": {
+        "file": "results/baseline/smolvlm2-500m/dev_select-abstain.json",
+        "accuracy": 28.7890625,
+        "average_precision": 42.58118805838807
+      }
+    },
+    "chosen": "abstain"
+  },
+  "image_longest_edge": 1024,
+  "image_tokens": {
+    "questions": 4319,
+    "mean": 319.9
+  },
+  "batch_size": 8,
+  "prefetch_workers": 2,
+  "prefetch_ab": null,
+  "gpu_hours": {
+    "prior_estimate": {
+      "stage": "baseline:smolvlm2-500m:val:abstain:le1024",
+      "items": 4319,
+      "sec_per_item": 0.2576923076923077,
+      "overhead_s": 300,
+      "safety_factor": 1.3,
+      "source": "prior",
+      "hours": 0.51
+    },
+    "calibration": {
+      "estimate": {
+        "stage": "baseline:smolvlm2-500m:val:abstain:le1024",
+        "items": 4319,
+        "sec_per_item": 0.4773306562187507,
+        "overhead_s": 300,
+        "safety_factor": 1.3,
+        "source": "calibrated",
+        "hours": 0.853
+      },
+      "measured_items": 32,
+      "measured_seconds": 15.27
+    },
+    "actual_this_run": 0.3467
+  },
+  "run": {
+    "new": 4319,
+    "resumed": 0,
+    "seconds": 1248.3,
+    "sec_per_question": 0.289
+  },
+  "metrics": {
+    "n": 4319,
+    "question_ids_sha256": "2e2e29f6572646ca17b35a209a55793382b3c0eab9ac1d712d82de6876b3c398",
+    "accuracy": {
+      "overall": 33.05394767307247,
+      "overall_official": 33.05,
+      "ci95": {
+        "low": 31.666994674693218,
+        "high": 34.3347997221579,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "per_answer_type": {
+        "number": 42.29,
+        "other": 32.56,
+        "unanswerable": 30.02,
+        "yes/no": 59.18
+      },
+      "per_answer_type_n": {
+        "number": 48,
+        "other": 2691,
+        "unanswerable": 1385,
+        "yes/no": 195
+      },
+      "answerable_only": 34.48534423994546,
+      "unanswerable_only": 30.02166064981949
+    },
+    "answerability": {
+      "average_precision": 53.372570067502934,
+      "average_precision_official": 53.37,
+      "ap_ci95": {
+        "low": 50.945063257006055,
+        "high": 56.03804047743301,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "f1_at_0_5_official": 14.03,
+      "positive_rate": 0.3206760824264876,
+      "oracle_threshold_this_split": {
+        "threshold": 0.010541624154943807,
+        "f1": 60.50557216634955
+      }
+    },
+    "said_unanswerable_rate": 0.12780736281546654,
+    "abstained_by_rule_rate": 0.0
+  },
+  "predictions": {
+    "repo": "cjitendr/lumen-predictions",
+    "repo_type": "dataset",
+    "path": "baseline/smolvlm2-500m/val-abstain-le1024.predictions.jsonl",
+    "revision": "caca4d2b1e6b60f0efdc92f42b7686bf5f2375df",
+    "sha256": "116c48dbaa5ff265c420994210389770996fb655e16244a8c95f00fe3fce1efb",
+    "lines": 4320,
+    "stored": "private Hugging Face dataset"
+  }
+}

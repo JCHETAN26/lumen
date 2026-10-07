@@ -2,6 +2,51 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-07: Batch session 1: Stage 3 prep and two of three sweep runs
+
+One unattended Kaggle session (`kaggle/batch_stage3.ipynb`, 10.4 h of GPU; every stage exit 0).
+The first push failed in 8 s: an API-pushed notebook version gets no Kaggle Secrets until they are
+attached in the editor. Results were fetched with `kaggle kernels output --file-pattern
+'lumen-results/.*'` (no prediction files in the output: data, predictions, and checkpoints were
+kept in /kaggle/temp). The regenerated splits match the committed ones.
+
+**Recovered and committed:** the four resolution-probe arms (rebuilt from the Hub predictions;
+metrics equal the 2026-10-05 notebook output) and `resolution_choice` (rule: 512 px; the committed
+override makes it 1,024 px).
+
+**Matched zero-shot baseline (val, 4,319 questions, 1,024 px):** accuracy 33.05, AP 53.37,
+says "unanswerable" 12.8% (at the default 2,048 px: 32.07 / 52.67 / 11.9%). This, not the 2,048 px
+run, is what the fine-tune is compared against.
+
+**Training speed (T4, 1,024 px, batch 4 x 2):** median 3.50 s/step (p90 3.57), peak 2.71 GiB,
+2.25 h per epoch, 0 non-finite losses, 4 loss-scale overflows. The prior was 2.1 s/step; it was
+optimistic by 1.7x. Each 2-epoch sweep run took 4.54 GPU h.
+
+**Sweep so far (dev, all 2,052 questions; dev chooses, it is not the reported number):**
+
+| Run | Epoch | Accuracy [95% CI] | AP | Says unanswerable | Credit from real answers* | Accuracy when answering* |
+|---|---|---|---|---|---|---|
+| zero-shot, 1,024 px | - | 31.88 [30.09, 33.65] | 49.06 | 11.4% | 30.09 | 32.10 |
+| lr2e-4 | 1 | 66.25 | 77.94 | | 38.56 | 57.17 |
+| lr2e-4 | 2 | 66.80 | 79.60 | | 41.15 | 58.13 |
+| lr1e-4 | 1 | 65.48 [63.60, 67.27] | 77.52 | 50.1% | 37.23 | 56.78 |
+| lr1e-4 | 2 | 65.96 [64.11, 67.75] | 79.02 | 46.0% | 40.26 | 57.20 |
+
+\*On answerable questions only (n = 1,499).
+
+**Is the jump real?** It looked too large to accept unchecked, so: (1) the gain is not only
+abstention. On answerable questions, credit from real answers rose from 30.1 to 41.2 and accuracy
+when answering from 32.1 to 58.1. (2) Abstention does contribute: the model says "unanswerable" to
+29-34% of answerable questions (zero-shot: 6%), and 35.7% of training targets are "unanswerable"
+(6,587 of 18,471: the 27% labeled unanswerable plus answerable questions whose most common human
+answer is "unanswerable", the VizWiz convention). (3) dev and train_fit are disjoint by question
+and image (checked by the runner); near-duplicate photos across VizWiz users can't be ruled out
+and are a stated limitation. Val (32% unanswerable vs dev's 27%) is the reported number.
+
+**Next:** sweep run 3 (lr4e-4, ~4.9 GPU h with its dev evals) fits the 11.98 h left this week.
+The replicates (2 seeds + the ablation, ~4.5 h each at 2 epochs) and val evals wait for the
+quota reset on 2026-10-10.
+
 ## 2026-10-06: The final test stage, and a hole in the seal it closes
 
 `final_test` runs the sealed test evaluation: the dev-chosen fine-tune and the matched zero-shot

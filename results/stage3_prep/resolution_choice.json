@@ -1,0 +1,277 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-06T23:50:18+00:00",
+    "git": {
+      "commit": "340eb1a93a23b06a4d44efa4bf271667c17d9c62",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.18.48+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        1.06,
+        0.82,
+        0.48
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+      "memory_gib": 31.3,
+      "gpus": [
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        },
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        }
+      ],
+      "kaggle": true
+    },
+    "python": "3.13.15",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0+cu126",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "resolution_choice"
+    ]
+  },
+  "stage": "resolution_choice",
+  "model": "smolvlm2-500m",
+  "split": "dev",
+  "n": 2052,
+  "question_ids_sha256": "a2feda5a82b87cd51111d5e22f690e3ef4fb52aede12c10572ab169922202e17",
+  "prompt": "abstain",
+  "prompt_selection": {
+    "rule": "max dev_select accuracy; ties by AP, then name",
+    "split": "dev_select",
+    "dev": {
+      "plain": {
+        "file": "results/baseline/smolvlm2-500m/dev_select-plain.json",
+        "accuracy": 24.921875,
+        "average_precision": 42.31084428458228
+      },
+      "abstain": {
+        "file": "results/baseline/smolvlm2-500m/dev_select-abstain.json",
+        "accuracy": 28.7890625,
+        "average_precision": 42.58118805838807
+      }
+    },
+    "chosen": "abstain"
+  },
+  "rule": "best = highest dev accuracy (all of dev; ties: fewer image tokens); chosen = the smallest long edge whose 95% paired bootstrap CI on (accuracy - best accuracy) has a lower bound >= -2 points. AP is reported, not decisive. Fixed 2026-10-03, before any probe result existed.",
+  "margin_points": 2.0,
+  "best": 512,
+  "arms": [
+    {
+      "long_edge": 2048,
+      "result": "results/baseline/smolvlm2-500m/dev-abstain.json",
+      "accuracy": 30.14132553606238,
+      "accuracy_official": 30.14,
+      "average_precision": 47.87631683697221,
+      "portrait_tiles": 13,
+      "image_tokens": null,
+      "sec_per_question": null,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 5.670446964643095,
+        "credit_from_unanswerable": 2.515010006671114,
+        "credit_from_answers": 28.418945963975982,
+        "accuracy_when_answering": 30.127298444130126
+      },
+      "vs_best": {
+        "accuracy_diff": -9.868421052631579,
+        "accuracy_diff_ci95": {
+          "low": -11.833333333333332,
+          "high": -8.02534113060429,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "within_margin": false,
+        "ap_diff": 2.998902731578376,
+        "ap_diff_ci95": {
+          "low": 0.7898146951903322,
+          "high": 5.372690013414975,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      }
+    },
+    {
+      "long_edge": 1536,
+      "result": "results/baseline/smolvlm2-500m/dev-abstain-le1536.json",
+      "accuracy": 30.633528265107213,
+      "accuracy_official": 30.63,
+      "average_precision": 48.787232109283885,
+      "portrait_tiles": 10,
+      "image_tokens": null,
+      "sec_per_question": null,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 6.070713809206137,
+        "credit_from_unanswerable": 2.715143428952635,
+        "credit_from_answers": 28.46564376250834,
+        "accuracy_when_answering": 30.305397727272727
+      },
+      "vs_best": {
+        "accuracy_diff": -9.376218323586745,
+        "accuracy_diff_ci95": {
+          "low": -11.24780701754386,
+          "high": -7.508650097465888,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "within_margin": false,
+        "ap_diff": 3.9098180038900523,
+        "ap_diff_ci95": {
+          "low": 1.667314898237113,
+          "high": 6.296712772020261,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      },
+      "vs_default": {
+        "accuracy_diff": 0.4922027290448341,
+        "accuracy_diff_ci95": {
+          "low": -0.3658625730994146,
+          "high": 1.3548976608187129,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "ap_diff": 0.9109152723116765,
+        "ap_diff_ci95": {
+          "low": 0.08424435250707295,
+          "high": 1.7210813484112288,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      }
+    },
+    {
+      "long_edge": 1024,
+      "result": "results/baseline/smolvlm2-500m/dev-abstain-le1024.json",
+      "accuracy": 31.876218323586745,
+      "accuracy_official": 31.88,
+      "average_precision": 49.059852047636205,
+      "portrait_tiles": 5,
+      "image_tokens": null,
+      "sec_per_question": null,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 6.270847231487658,
+        "credit_from_unanswerable": 2.735156771180787,
+        "credit_from_answers": 30.08672448298866,
+        "accuracy_when_answering": 32.09964412811388
+      },
+      "vs_best": {
+        "accuracy_diff": -8.133528265107213,
+        "accuracy_diff_ci95": {
+          "low": -9.96125730994152,
+          "high": -6.271320662768033,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "within_margin": false,
+        "ap_diff": 4.182437942242373,
+        "ap_diff_ci95": {
+          "low": 1.8107677021957356,
+          "high": 6.604760713705853,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      },
+      "vs_default": {
+        "accuracy_diff": 1.734892787524366,
+        "accuracy_diff_ci95": {
+          "low": 0.6237816764132553,
+          "high": 2.871710526315788,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "ap_diff": 1.1835352106639974,
+        "ap_diff_ci95": {
+          "low": -0.09216722787529272,
+          "high": 2.639123438013614,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      }
+    },
+    {
+      "long_edge": 512,
+      "result": "results/baseline/smolvlm2-500m/dev-abstain-le512.json",
+      "accuracy": 40.00974658869396,
+      "accuracy_official": 40.01,
+      "average_precision": 44.87741410539383,
+      "portrait_tiles": 1,
+      "image_tokens": null,
+      "sec_per_question": null,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 21.214142761841227,
+        "credit_from_unanswerable": 9.179452968645764,
+        "credit_from_answers": 24.57638425617078,
+        "accuracy_when_answering": 31.193903471634208
+      },
+      "vs_default": {
+        "accuracy_diff": 9.868421052631579,
+        "accuracy_diff_ci95": {
+          "low": 8.02534113060429,
+          "high": 11.833333333333332,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "ap_diff": -2.998902731578376,
+        "ap_diff_ci95": {
+          "low": -5.372690013414975,
+          "high": -0.7898146951903322,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      }
+    }
+  ],
+  "chosen": {
+    "long_edge": 512,
+    "accuracy": 40.01
+  }
+}

@@ -1,0 +1,172 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-06T23:49:09+00:00",
+    "git": {
+      "commit": "340eb1a93a23b06a4d44efa4bf271667c17d9c62",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.18.48+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        1.14,
+        0.76,
+        0.43
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+      "memory_gib": 31.3,
+      "gpus": [
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        },
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        }
+      ],
+      "kaggle": true
+    },
+    "python": "3.13.15",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0+cu126",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "rebuild_baseline",
+      "--model",
+      "smolvlm2-500m"
+    ]
+  },
+  "stage": "baseline",
+  "status": "completed",
+  "error": null,
+  "smoke": false,
+  "rebuilt": {
+    "from": "predictions in the private Hugging Face dataset",
+    "reason": "the original result files were lost with the Kaggle session's disk",
+    "lost": "GPU hours, timing, batch size, prefetch, image-token counts, model description beyond the predictions header"
+  },
+  "model": {
+    "model_key": "smolvlm2-500m",
+    "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+    "stand_in": false,
+    "backend": "transformers",
+    "image_longest_edge": 1536,
+    "generation": {
+      "max_new_tokens": 16,
+      "do_sample": false,
+      "num_beams": 1,
+      "repetition_penalty": 1.0
+    }
+  },
+  "split": "dev",
+  "prompt": {
+    "model": {
+      "model_key": "smolvlm2-500m",
+      "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+      "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+      "stand_in": false,
+      "backend": "transformers",
+      "image_longest_edge": 1536
+    },
+    "generation": {
+      "max_new_tokens": 16,
+      "do_sample": false,
+      "num_beams": 1,
+      "repetition_penalty": 1.0
+    },
+    "prompt_key": "abstain",
+    "prompt_template": "{question}\nAnswer the question using a single word or phrase. If the photo cannot answer the question (for example, it is too blurry or dark, or the object is out of frame), answer exactly: unanswerable",
+    "prompt_version": "v1",
+    "extractor_version": "v1",
+    "split": "dev"
+  },
+  "prompt_selection": null,
+  "image_longest_edge": 1536,
+  "image_tokens": null,
+  "batch_size": null,
+  "prefetch_workers": null,
+  "prefetch_ab": null,
+  "gpu_hours": {
+    "prior_estimate": null,
+    "calibration": null,
+    "actual_this_run": null
+  },
+  "run": null,
+  "metrics": {
+    "n": 2052,
+    "question_ids_sha256": "a2feda5a82b87cd51111d5e22f690e3ef4fb52aede12c10572ab169922202e17",
+    "accuracy": {
+      "overall": 30.633528265107213,
+      "overall_official": 30.63,
+      "ci95": {
+        "low": 28.859405458089668,
+        "high": 32.261452241715396,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "per_answer_type": {
+        "number": 43.67,
+        "other": 29.68,
+        "unanswerable": 29.15,
+        "yes/no": 49.57
+      },
+      "per_answer_type_n": {
+        "number": 30,
+        "other": 1377,
+        "unanswerable": 553,
+        "yes/no": 92
+      },
+      "answerable_only": 31.180787191460972,
+      "unanswerable_only": 29.150090415913198
+    },
+    "answerability": {
+      "average_precision": 48.787232109283885,
+      "average_precision_official": 48.79,
+      "ap_ci95": {
+        "low": 44.498392471464875,
+        "high": 53.40994463420184,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "f1_at_0_5_official": 16.59,
+      "positive_rate": 0.26949317738791423,
+      "oracle_threshold_this_split": {
+        "threshold": 0.015613276923272468,
+        "f1": 54.71296952515946
+      }
+    },
+    "said_unanswerable_rate": 0.1111111111111111,
+    "abstained_by_rule_rate": 0.0014619883040935672
+  },
+  "predictions": {
+    "repo": "cjitendr/lumen-predictions",
+    "repo_type": "dataset",
+    "path": "baseline/smolvlm2-500m/dev-abstain-le1536.predictions.jsonl",
+    "revision": "bd8de264aeed7433a929f3cadcbc8eafed85ac04",
+    "sha256": "d452c0e34fefd0abc721eee71ef0dbb57d0400c703d481f929fd96922ac04ad0",
+    "lines": 2053,
+    "stored": "private Hugging Face dataset"
+  }
+}
