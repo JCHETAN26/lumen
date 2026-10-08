@@ -1,0 +1,223 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-08T01:12:10+00:00",
+    "git": {
+      "commit": "c7749b747ed6ee2051403fc6719ba5bb61e68998",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.18.48+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        1.17,
+        1.27,
+        1.27
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+      "memory_gib": 31.3,
+      "gpus": [
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        },
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        }
+      ],
+      "kaggle": true
+    },
+    "python": "3.13.15",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0+cu126",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "finetune_choice"
+    ]
+  },
+  "stage": "finetune_choice",
+  "smoke": false,
+  "rule": "chosen = the sweep (run, epoch) with the highest official accuracy on all of dev; ties: higher dev AP, then fewer steps, then run name. Sweep = default seed, unanswerable examples included. Seed and ablation runs re-train the chosen config. Fixed 2026-10-06, before any fine-tuning result existed.",
+  "sweep_seed": 20260928,
+  "chosen": {
+    "run": "lr4e-4",
+    "epoch": 2,
+    "step": 4618,
+    "accuracy": 68.14327485380117,
+    "average_precision": 80.60109593265953,
+    "said_unanswerable_rate": 0.44298245614035087,
+    "answerable_breakdown": {
+      "n": 1499,
+      "says_unanswerable": 27.084723148765843,
+      "credit_from_unanswerable": 15.70380253502335,
+      "credit_from_answers": 43.41561040693796,
+      "accuracy_when_answering": 59.542543458371455
+    },
+    "lr": 0.0004,
+    "lora_r": 16,
+    "epochs_in_schedule": 2,
+    "spec": {
+      "model": {
+        "model_key": "smolvlm2-500m",
+        "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+        "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467"
+      },
+      "config": {
+        "prompt_key": "abstain",
+        "image_longest_edge": 1024,
+        "include_unanswerable": true,
+        "lora_r": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0.05,
+        "lora_targets": ".*\\.text_model\\.layers\\.\\d+\\.(self_attn\\.(q|k|v|o)_proj|mlp\\.(gate|up|down)_proj)",
+        "lr": 0.0004,
+        "weight_decay": 0.0,
+        "warmup_steps": 50,
+        "schedule_steps": 4618,
+        "micro_batch": 4,
+        "grad_accum": 2,
+        "max_grad_norm": 1.0,
+        "fp16": true,
+        "gradient_checkpointing": true,
+        "nonfinite_patience": 10,
+        "seed": 20260928,
+        "effective_batch_size": 8
+      },
+      "epochs": 2,
+      "steps_per_epoch": 2309,
+      "max_steps": 4618,
+      "train_fit_ids_sha256": "2c8e846883ee01ffdd296415e7bbfad260dfbf518388506400d6ebc736c043b7",
+      "target_version": "v1",
+      "prompt_version": "v1"
+    },
+    "family_sha256": "d60288ca1fe72c0a7c608a14f463e559045da5d94080f01fc64429bef30b32b8",
+    "threshold": 0.671880098008881
+  },
+  "ranking": [
+    {
+      "run": "lr4e-4",
+      "epoch": 2,
+      "step": 4618,
+      "accuracy": 68.14327485380117,
+      "average_precision": 80.60109593265953,
+      "said_unanswerable_rate": 0.44298245614035087,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 27.084723148765843,
+        "credit_from_unanswerable": 15.70380253502335,
+        "credit_from_answers": 43.41561040693796,
+        "accuracy_when_answering": 59.542543458371455
+      },
+      "lr": 0.0004,
+      "lora_r": 16,
+      "epochs_in_schedule": 2
+    },
+    {
+      "run": "lr2e-4",
+      "epoch": 2,
+      "step": 4618,
+      "accuracy": 66.79824561403508,
+      "average_precision": 79.60413537346754,
+      "said_unanswerable_rate": 0.4571150097465887,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 29.21947965310207,
+        "credit_from_unanswerable": 16.184122748499,
+        "credit_from_answers": 41.14743162108072,
+        "accuracy_when_answering": 58.13383600377003
+      },
+      "lr": 0.0002,
+      "lora_r": 16,
+      "epochs_in_schedule": 2
+    },
+    {
+      "run": "lr4e-4",
+      "epoch": 1,
+      "step": 2309,
+      "accuracy": 66.60818713450293,
+      "average_precision": 78.84952950078954,
+      "said_unanswerable_rate": 0.46832358674463936,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 29.81987991994663,
+        "credit_from_unanswerable": 16.490993995997332,
+        "credit_from_answers": 40.0,
+        "accuracy_when_answering": 56.99619771863118
+      },
+      "lr": 0.0004,
+      "lora_r": 16,
+      "epochs_in_schedule": 2
+    },
+    {
+      "run": "lr2e-4",
+      "epoch": 1,
+      "step": 2309,
+      "accuracy": 66.25243664717348,
+      "average_precision": 77.93510000047878,
+      "said_unanswerable_rate": 0.4878167641325536,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 32.55503669112742,
+        "credit_from_unanswerable": 17.53168779186124,
+        "credit_from_answers": 38.55903935957305,
+        "accuracy_when_answering": 57.17111770524233
+      },
+      "lr": 0.0002,
+      "lora_r": 16,
+      "epochs_in_schedule": 2
+    },
+    {
+      "run": "lr1e-4",
+      "epoch": 2,
+      "step": 4618,
+      "accuracy": 65.96491228070175,
+      "average_precision": 79.01550453534918,
+      "said_unanswerable_rate": 0.4600389863547758,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 29.619746497665112,
+        "credit_from_unanswerable": 16.117411607738493,
+        "credit_from_answers": 40.26017344896598,
+        "accuracy_when_answering": 57.203791469194314
+      },
+      "lr": 0.0001,
+      "lora_r": 16,
+      "epochs_in_schedule": 2
+    },
+    {
+      "run": "lr1e-4",
+      "epoch": 1,
+      "step": 2309,
+      "accuracy": 65.48245614035088,
+      "average_precision": 77.52449217617526,
+      "said_unanswerable_rate": 0.5009746588693957,
+      "answerable_breakdown": {
+        "n": 1499,
+        "says_unanswerable": 34.422948632421615,
+        "credit_from_unanswerable": 17.851901267511675,
+        "credit_from_answers": 37.23148765843896,
+        "accuracy_when_answering": 56.775178026449645
+      },
+      "lr": 0.0001,
+      "lora_r": 16,
+      "epochs_in_schedule": 2
+    }
+  ],
+  "data_used": "dev only; no val or test data"
+}

@@ -2,6 +2,27 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-08: Batch session 2: the last sweep run and the dev choice
+
+lr4e-4 (2 epochs, 4.99 GPU h, 0 non-finite losses, 5 loss-scale overflows) on all 2,052 dev
+questions: epoch 1 66.61 [64.70, 68.36], AP 78.85; epoch 2 **68.14 [66.34, 69.85]**, AP 80.60.
+On answerable questions at epoch 2: credit from real answers 43.42 (zero-shot 30.09), accuracy
+when answering 59.54, says "unanswerable" 27.1%.
+
+**The pre-registered choice** (`results/finetune/choice.json`, rule fixed 2026-10-06): lr4e-4,
+epoch 2, dev F1 threshold 0.672. Ranking: lr4e-4 e2 68.14 > lr2e-4 e2 66.80 > lr4e-4 e1 66.61 >
+lr2e-4 e1 66.25 > lr1e-4 e2 65.96 > lr1e-4 e1 65.48. Every run's epoch 2 beat its epoch 1, and
+accuracy rose with the learning rate.
+
+**Limitation, stated before seeing val:** the winner is at the edge of the sweep (highest learning
+rate, last epoch), so a higher rate or a longer schedule might do better still. The sweep was fixed
+in advance and isn't extended after the fact; the gap between the top two configs (1.3 points)
+is also within the dev CIs. Recorded as a limitation, not tuned further.
+
+**Next (session 3, after the quota reset on 2026-10-10, ~17 GPU h over two sessions):** seeds
+20260929 and 20260930 and the no-unanswerable ablation of lr4e-4 (2 epochs each), their dev evals
+(thresholds), then val for all four runs and `finetune_compare`.
+
 ## 2026-10-07: Batch session 1: Stage 3 prep and two of three sweep runs
 
 One unattended Kaggle session (`kaggle/batch_stage3.ipynb`, 10.4 h of GPU; every stage exit 0).

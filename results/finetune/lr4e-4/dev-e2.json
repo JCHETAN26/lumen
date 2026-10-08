@@ -1,0 +1,268 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-08T01:12:07+00:00",
+    "git": {
+      "commit": "c7749b747ed6ee2051403fc6719ba5bb61e68998",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.18.48+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        1.19,
+        1.28,
+        1.27
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+      "memory_gib": 31.3,
+      "gpus": [
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        },
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        }
+      ],
+      "kaggle": true
+    },
+    "python": "3.13.15",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0+cu126",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "finetune_eval",
+      "--run",
+      "lr4e-4",
+      "--epoch",
+      "2",
+      "--split",
+      "dev",
+      "--gpu-hours-left",
+      "6.61"
+    ]
+  },
+  "stage": "finetune_eval",
+  "status": "completed",
+  "error": null,
+  "smoke": false,
+  "run": "lr4e-4",
+  "epoch": 2,
+  "split": "dev",
+  "model": {
+    "backend": "transformers",
+    "model_key": "smolvlm2-500m",
+    "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+    "stand_in": false,
+    "parameters": 507482304,
+    "dtype": "float16",
+    "device": "cuda",
+    "cuda_device": "Tesla T4",
+    "generation": {
+      "max_new_tokens": 16,
+      "do_sample": false,
+      "num_beams": 1,
+      "repetition_penalty": 1.0
+    },
+    "unanswerable_token_variants": [
+      [
+        419,
+        11247,
+        515
+      ],
+      [
+        551,
+        11247,
+        515
+      ],
+      [
+        810,
+        11247,
+        515
+      ],
+      [
+        3706,
+        11247,
+        515
+      ]
+    ],
+    "image_longest_edge": 1024,
+    "adapter": {
+      "run": "lr4e-4",
+      "epoch": 2,
+      "step": 4618,
+      "spec_sha256": "05e123855515a48d7387763b18d83a6fcfe678608dedae81bcb7cab86a123766",
+      "repo": "cjitendr/lumen-adapter",
+      "path": "runs/lr4e-4/epoch-2",
+      "revision": "3855491a2282b3033b5e45d7cae72a38093e5edc",
+      "adapter_model_sha256": "b1e370bf535f70d08d65caae4fab725fb5348070008340f55850f922b0611864"
+    }
+  },
+  "spec": {
+    "model": {
+      "model_key": "smolvlm2-500m",
+      "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+      "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467"
+    },
+    "config": {
+      "prompt_key": "abstain",
+      "image_longest_edge": 1024,
+      "include_unanswerable": true,
+      "lora_r": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.05,
+      "lora_targets": ".*\\.text_model\\.layers\\.\\d+\\.(self_attn\\.(q|k|v|o)_proj|mlp\\.(gate|up|down)_proj)",
+      "lr": 0.0004,
+      "weight_decay": 0.0,
+      "warmup_steps": 50,
+      "schedule_steps": 4618,
+      "micro_batch": 4,
+      "grad_accum": 2,
+      "max_grad_norm": 1.0,
+      "fp16": true,
+      "gradient_checkpointing": true,
+      "nonfinite_patience": 10,
+      "seed": 20260928,
+      "effective_batch_size": 8
+    },
+    "epochs": 2,
+    "steps_per_epoch": 2309,
+    "max_steps": 4618,
+    "train_fit_ids_sha256": "2c8e846883ee01ffdd296415e7bbfad260dfbf518388506400d6ebc736c043b7",
+    "target_version": "v1",
+    "prompt_version": "v1"
+  },
+  "adapter": {
+    "run": "lr4e-4",
+    "epoch": 2,
+    "step": 4618,
+    "spec_sha256": "05e123855515a48d7387763b18d83a6fcfe678608dedae81bcb7cab86a123766",
+    "repo": "cjitendr/lumen-adapter",
+    "path": "runs/lr4e-4/epoch-2",
+    "revision": "3855491a2282b3033b5e45d7cae72a38093e5edc",
+    "adapter_model_sha256": "b1e370bf535f70d08d65caae4fab725fb5348070008340f55850f922b0611864"
+  },
+  "prompt_key": "abstain",
+  "image_longest_edge": 1024,
+  "batch_size": 8,
+  "gpu_hours": {
+    "prior_estimate": {
+      "stage": "baseline:smolvlm2-500m:dev:abstain:le1024",
+      "items": 2052,
+      "sec_per_item": 0.2576923076923077,
+      "overhead_s": 300,
+      "safety_factor": 1.3,
+      "source": "prior",
+      "hours": 0.299
+    },
+    "calibration": {
+      "estimate": {
+        "stage": "baseline:smolvlm2-500m:dev:abstain:le1024",
+        "items": 2052,
+        "sec_per_item": 0.38924255981248734,
+        "overhead_s": 300,
+        "safety_factor": 1.3,
+        "source": "calibrated",
+        "hours": 0.397
+      },
+      "measured_items": 32,
+      "seconds": 12.46
+    },
+    "actual_this_run": 0.1648
+  },
+  "run_stats": {
+    "new": 2052,
+    "resumed": 0,
+    "seconds": 593.3,
+    "sec_per_question": 0.2891
+  },
+  "metrics": {
+    "n": 2052,
+    "question_ids_sha256": "a2feda5a82b87cd51111d5e22f690e3ef4fb52aede12c10572ab169922202e17",
+    "accuracy": {
+      "overall": 68.14327485380117,
+      "overall_official": 68.14,
+      "ci95": {
+        "low": 66.34478557504873,
+        "high": 69.85392300194931,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "per_answer_type": {
+        "number": 63.33,
+        "other": 57.1,
+        "unanswerable": 92.6,
+        "yes/no": 87.93
+      },
+      "per_answer_type_n": {
+        "number": 30,
+        "other": 1377,
+        "unanswerable": 553,
+        "yes/no": 92
+      },
+      "answerable_only": 59.119412941961315,
+      "unanswerable_only": 92.60397830018083
+    },
+    "answerability": {
+      "average_precision": 80.60109593265953,
+      "average_precision_official": 80.6,
+      "ap_ci95": {
+        "low": 77.56273920335882,
+        "high": 83.76327474271858,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "f1_at_0_5_official": 72.69,
+      "positive_rate": 0.26949317738791423,
+      "oracle_threshold_this_split": {
+        "threshold": 0.671880098008881,
+        "f1": 74.1306191687871
+      }
+    },
+    "said_unanswerable_rate": 0.44298245614035087,
+    "abstained_by_rule_rate": 0.0
+  },
+  "answerable_breakdown": {
+    "n": 1499,
+    "says_unanswerable": 27.084723148765843,
+    "credit_from_unanswerable": 15.70380253502335,
+    "credit_from_answers": 43.41561040693796,
+    "accuracy_when_answering": 59.542543458371455
+  },
+  "threshold_choice": {
+    "threshold": 0.671880098008881,
+    "f1_dev": 74.1306191687871,
+    "rule": "maximize F1 (unanswerable positive) on this run's dev predictions; applied unchanged to val"
+  },
+  "predictions": {
+    "repo": "cjitendr/lumen-predictions",
+    "repo_type": "dataset",
+    "path": "finetune/lr4e-4/dev-e2.predictions.jsonl",
+    "revision": "65a695cd9e9622893f0456ce290510b32fc9c520",
+    "sha256": "d5dc8c68fa7792f6fe98d32d043eaf465718d8a6a81ca16286e861bb675318e8",
+    "lines": 2053,
+    "stored": "private Hugging Face dataset"
+  }
+}
