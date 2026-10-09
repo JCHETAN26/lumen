@@ -2,6 +2,22 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-09: Batch session 3, part 1: both seed replicates trained
+
+An accidental rerun of the session 2 notebook on 2026-10-08 (the editor still held it) cost 0.45
+GPU h and reproduced lr4e-4's dev evals and the choice exactly (66.61 and 68.14, same CIs): the
+evaluation is deterministic. Its duplicate result files aren't committed.
+
+Session 3 (10.65 h): seeds 20260929 (`c4e-4-s2`) and 20260930 (`c4e-4-s3`) of the chosen config
+(lr4e-4, 2 epochs), 5.15 GPU h each, 0 non-finite losses, 4 loss-scale overflows each. Seed
+20260929 on dev at epoch 2: 68.01 [66.16, 69.75], AP 80.48 (the original seed: 68.14, AP 80.60);
+its dev F1 threshold is 0.716. `c4e-4-s3`'s dev eval was skipped (under 0.4 h left in the
+session) and `finetune_compare` exited 1 because no val results exist yet, as expected.
+
+Kaggle let the session run 4.6 h past the weekly quota (34.63 of 30 h used); the guard used the
+quota measured at the session start. Remaining (~7 GPU h, after the 2026-10-10 reset): s3's dev
+eval, the no-unanswerable ablation (train + dev), val for all four runs, and `finetune_compare`.
+
 ## 2026-10-08: Batch session 2: the last sweep run and the dev choice
 
 lr4e-4 (2 epochs, 4.99 GPU h, 0 non-finite losses, 5 loss-scale overflows) on all 2,052 dev
