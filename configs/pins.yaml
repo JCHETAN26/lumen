@@ -70,7 +70,26 @@ models:
 
 # LoRA adapters Lumen trains are pushed to private Hub repos and pinned here by commit SHA
 # (Stage 3). The Mac downloads an adapter only by the revision recorded here.
-adapters: {}
+adapters:
+  # The dev-chosen fine-tune (results/finetune/choice.json), printed by `run_stages.py pin_adapter`.
+  lr4e-4-e2:
+    repo: cjitendr/lumen-adapter
+    revision: 3855491a2282b3033b5e45d7cae72a38093e5edc
+    path: runs/lr4e-4/epoch-2
+    base: smolvlm2-500m
+    run: lr4e-4
+    epoch: 2
+    step: 4618
+    spec_sha256: 05e123855515a48d7387763b18d83a6fcfe678608dedae81bcb7cab86a123766
+    image_longest_edge: 1024
+    prompt_key: abstain
+    license: apache-2.0
+    role: fine-tuned LoRA adapter (Stage 3)
+    files:
+      README.md: 659f16d7cb808d7e8e4d1e532c74a786a1c42e37af20a716e9c9d2167dc9e6af
+      adapter_config.json: 2b2e166cd18643a2f2fc7756cb7eacfd467cc835d69b8daf507ddc3a12d34e2f
+      adapter_model.safetensors: b1e370bf535f70d08d65caae4fab725fb5348070008340f55850f922b0611864
+      lumen_adapter.json: 77242e4f6ebe128d950366b75905fd308d0fed976904170ba75d51724dceb799
 
 # Model prediction files never enter git: they hold model outputs about users' photos and can
 # repeat private details, and this repo will become public. They go to a private Hugging Face
