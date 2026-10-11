@@ -1,0 +1,71 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-11T01:46:52+00:00",
+    "git": {
+      "commit": "e4f4a02b220302d3915a7b91c9490ed47d7ad9c6",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.18.48+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        1.64,
+        1.2,
+        0.65
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+      "memory_gib": 31.3,
+      "gpus": [
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        },
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        }
+      ],
+      "kaggle": true
+    },
+    "python": "3.13.15",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0+cu126",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "data"
+    ]
+  },
+  "files": {
+    "annotations": {
+      "sha256": "dbc32fc1e3f1b1039aea906030d569d6c238b4ddb2eea5e3453a6a565c829ec9",
+      "size": 1711273,
+      "pinned": true
+    },
+    "train_images": {
+      "sha256": "f31d712fe0bd6b136b100b7d5677b0006dcda64704f0b5f7af2f5f1373215d74",
+      "size": 11298421598,
+      "pinned": true
+    },
+    "val_images": {
+      "sha256": "7cc829c1fbcbc9ffd0a895f9df33d4b365557289c037a578ea9f812e41422469",
+      "size": 3488913457,
+      "pinned": true
+    }
+  }
+}

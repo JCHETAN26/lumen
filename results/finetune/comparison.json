@@ -1,0 +1,505 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-11T07:24:20+00:00",
+    "git": {
+      "commit": "e4f4a02b220302d3915a7b91c9490ed47d7ad9c6",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "x86_64",
+      "os": "Linux 6.18.48+",
+      "logical_cpus": 4,
+      "load_average_1m_5m_15m": [
+        1.26,
+        1.31,
+        1.33
+      ],
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+      "memory_gib": 31.3,
+      "gpus": [
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        },
+        {
+          "name": "Tesla T4",
+          "memory_mib": 15360,
+          "driver": "580.178.04"
+        }
+      ],
+      "kaggle": true
+    },
+    "python": "3.13.15",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.5.3",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0+cu126",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": null,
+      "mlx-vlm": null,
+      "mlx-lm": null
+    },
+    "argv": [
+      "kaggle/run_stages.py",
+      "finetune_compare"
+    ]
+  },
+  "stage": "finetune_compare",
+  "smoke": false,
+  "split": "val",
+  "n": 4319,
+  "question_ids_sha256": "2e2e29f6572646ca17b35a209a55793382b3c0eab9ac1d712d82de6876b3c398",
+  "choice": {
+    "run": "lr4e-4",
+    "epoch": 2,
+    "rule": "chosen = the sweep (run, epoch) with the highest official accuracy on all of dev; ties: higher dev AP, then fewer steps, then run name. Sweep = default seed, unanswerable examples included. Seed and ablation runs re-train the chosen config. Fixed 2026-10-06, before any fine-tuning result existed."
+  },
+  "zero_shot": {
+    "model": "smolvlm2-500m",
+    "result": "val-abstain-le1024",
+    "accuracy": 33.05394767307247,
+    "accuracy_ci95": {
+      "low": 31.666994674693218,
+      "high": 34.3347997221579,
+      "level": 0.95,
+      "resamples": 1000,
+      "skipped": 0,
+      "seed": 20260928
+    },
+    "average_precision": 53.372570067502934,
+    "said_unanswerable_rate": 0.12780736281546654
+  },
+  "fine_tuned": [
+    {
+      "run": "c4e-4-s2",
+      "seed": 20260929,
+      "include_unanswerable": true,
+      "accuracy": 70.73859689742996,
+      "accuracy_ci95": {
+        "low": 69.39337809678166,
+        "high": 71.88504283398935,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "per_answer_type": {
+        "number": 57.5,
+        "other": 58.67,
+        "unanswerable": 92.97,
+        "yes/no": 82.62
+      },
+      "average_precision": 83.84771382743283,
+      "f1_at_0_5_official": 76.45,
+      "f1_at_dev_threshold": {
+        "threshold": 0.7160575087037793,
+        "f1": 76.36494252873564,
+        "label": "F1 at the threshold chosen on dev (not the official 0.5)"
+      },
+      "said_unanswerable_rate": 0.4846029173419773,
+      "answerable_breakdown": {
+        "n": 2934,
+        "says_unanswerable": 28.52760736196319,
+        "credit_from_unanswerable": 16.775732788002728,
+        "credit_from_answers": 43.466257668711656,
+        "accuracy_when_answering": 60.81545064377682
+      },
+      "vs_zero_shot": {
+        "n": 4319,
+        "accuracy_a": 70.73859689742996,
+        "accuracy_b": 33.05394767307247,
+        "accuracy_diff": 37.684649224357486,
+        "accuracy_diff_ci95": {
+          "low": 36.20276684417689,
+          "high": 39.14881917110442,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "ap_a": 83.84771382743283,
+        "ap_b": 53.372570067502934,
+        "ap_diff": 30.475143759929892,
+        "ap_diff_ci95": {
+          "low": 27.615270323403763,
+          "high": 32.99114971674571,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_answerable": 25.756646216768917,
+        "accuracy_diff_answerable_ci95": {
+          "low": 24.076175869120654,
+          "high": 27.41112815269257,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_unanswerable": 62.95306859205776,
+        "accuracy_diff_unanswerable_ci95": {
+          "low": 60.25974729241877,
+          "high": 65.50324909747292,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      },
+      "result": "c4e-4-s2"
+    },
+    {
+      "run": "c4e-4-s3",
+      "seed": 20260930,
+      "include_unanswerable": true,
+      "accuracy": 70.79416531604538,
+      "accuracy_ci95": {
+        "low": 69.47898819171105,
+        "high": 72.01447094234777,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "per_answer_type": {
+        "number": 62.5,
+        "other": 59.01,
+        "unanswerable": 92.59,
+        "yes/no": 80.62
+      },
+      "average_precision": 83.7159195608727,
+      "f1_at_0_5_official": 76.08,
+      "f1_at_dev_threshold": {
+        "threshold": 0.6807395119412625,
+        "f1": 76.52050919377652,
+        "label": "F1 at the threshold chosen on dev (not the official 0.5)"
+      },
+      "said_unanswerable_rate": 0.47904607548043526,
+      "answerable_breakdown": {
+        "n": 2934,
+        "says_unanswerable": 28.016359918200408,
+        "credit_from_unanswerable": 16.373551465576007,
+        "credit_from_answers": 44.13087934560327,
+        "accuracy_when_answering": 61.30681818181818
+      },
+      "vs_zero_shot": {
+        "n": 4319,
+        "accuracy_a": 70.79416531604538,
+        "accuracy_b": 33.05394767307247,
+        "accuracy_diff": 37.74021764297291,
+        "accuracy_diff_ci95": {
+          "low": 36.186501504978004,
+          "high": 39.21781662421857,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "ap_a": 83.7159195608727,
+        "ap_b": 53.372570067502934,
+        "ap_diff": 30.34334949336977,
+        "ap_diff_ci95": {
+          "low": 27.622613154028006,
+          "high": 32.80169095931266,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_answerable": 26.01908657123381,
+        "accuracy_diff_answerable_ci95": {
+          "low": 24.304618268575325,
+          "high": 27.675613496932517,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_unanswerable": 62.57039711191336,
+        "accuracy_diff_unanswerable_ci95": {
+          "low": 59.94873646209386,
+          "high": 65.07635379061372,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      },
+      "result": "c4e-4-s3"
+    },
+    {
+      "run": "lr4e-4",
+      "seed": 20260928,
+      "include_unanswerable": true,
+      "accuracy": 71.33827274832137,
+      "accuracy_ci95": {
+        "low": 70.07166010650613,
+        "high": 72.61646214401482,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "per_answer_type": {
+        "number": 59.79,
+        "other": 59.28,
+        "unanswerable": 93.82,
+        "yes/no": 80.92
+      },
+      "average_precision": 83.79636156600762,
+      "f1_at_0_5_official": 76.32,
+      "f1_at_dev_threshold": {
+        "threshold": 0.671880098008881,
+        "f1": 75.7247642333217,
+        "label": "F1 at the threshold chosen on dev (not the official 0.5)"
+      },
+      "said_unanswerable_rate": 0.49201203982403335,
+      "answerable_breakdown": {
+        "n": 2934,
+        "says_unanswerable": 29.209270620313564,
+        "credit_from_unanswerable": 17.368779822767554,
+        "credit_from_answers": 43.3571915473756,
+        "accuracy_when_answering": 61.246990852190656
+      },
+      "vs_zero_shot": {
+        "n": 4319,
+        "accuracy_a": 71.33827274832137,
+        "accuracy_b": 33.05394767307247,
+        "accuracy_diff": 38.2843250752489,
+        "accuracy_diff_ci95": {
+          "low": 36.871961102106965,
+          "high": 39.82872192637184,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "ap_a": 83.79636156600762,
+        "ap_b": 53.372570067502934,
+        "ap_diff": 30.423791498504684,
+        "ap_diff_ci95": {
+          "low": 27.56494572231581,
+          "high": 32.939095023159844,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_answerable": 26.240627130197684,
+        "accuracy_diff_answerable_ci95": {
+          "low": 24.44768234492161,
+          "high": 27.942229038854805,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_unanswerable": 63.79783393501805,
+        "accuracy_diff_unanswerable_ci95": {
+          "low": 61.27057761732852,
+          "high": 66.38267148014441,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      },
+      "result": "lr4e-4"
+    }
+  ],
+  "across_seeds": {
+    "accuracy": {
+      "n_seeds": 3,
+      "mean": 70.95701165393224,
+      "std": 0.3313487269599147,
+      "min": 70.73859689742996,
+      "max": 71.33827274832137,
+      "values": [
+        70.73859689742996,
+        70.79416531604538,
+        71.33827274832137
+      ]
+    },
+    "average_precision": {
+      "n_seeds": 3,
+      "mean": 83.78666498477105,
+      "std": 0.06643003793682546,
+      "min": 83.7159195608727,
+      "max": 83.84771382743283,
+      "values": [
+        83.84771382743283,
+        83.7159195608727,
+        83.79636156600762
+      ]
+    },
+    "f1_at_dev_threshold": {
+      "n_seeds": 3,
+      "mean": 76.20340531861127,
+      "std": 0.4217501786761723,
+      "min": 75.7247642333217,
+      "max": 76.52050919377652,
+      "values": [
+        76.36494252873564,
+        76.52050919377652,
+        75.7247642333217
+      ]
+    },
+    "accuracy_gain_vs_zero_shot": {
+      "n_seeds": 3,
+      "mean": 37.90306398085976,
+      "std": 0.3313487269599147,
+      "min": 37.684649224357486,
+      "max": 38.2843250752489,
+      "values": [
+        37.684649224357486,
+        37.74021764297291,
+        38.2843250752489
+      ]
+    },
+    "ap_gain_vs_zero_shot": {
+      "n_seeds": 3,
+      "mean": 30.414094917268116,
+      "std": 0.06643003793682546,
+      "min": 30.34334949336977,
+      "max": 30.475143759929892,
+      "values": [
+        30.475143759929892,
+        30.34334949336977,
+        30.423791498504684
+      ]
+    }
+  },
+  "ablation_no_unanswerable": [
+    {
+      "run": "c4e-4-nounans",
+      "seed": 20260928,
+      "include_unanswerable": false,
+      "accuracy": 64.62144014818244,
+      "accuracy_ci95": {
+        "low": 63.294628386200515,
+        "high": 65.87641815235007,
+        "level": 0.95,
+        "resamples": 1000,
+        "skipped": 0,
+        "seed": 20260928
+      },
+      "per_answer_type": {
+        "number": 53.54,
+        "other": 56.93,
+        "unanswerable": 76.9,
+        "yes/no": 86.26
+      },
+      "average_precision": 72.54615065883459,
+      "f1_at_0_5_official": 60.42,
+      "f1_at_dev_threshold": {
+        "threshold": 0.26609997026482124,
+        "f1": 69.13664174031271,
+        "label": "F1 at the threshold chosen on dev (not the official 0.5)"
+      },
+      "said_unanswerable_rate": 0.3623523963880528,
+      "answerable_breakdown": {
+        "n": 2934,
+        "says_unanswerable": 20.006816632583504,
+        "credit_from_unanswerable": 12.38241308793456,
+        "credit_from_answers": 46.4451261077028,
+        "accuracy_when_answering": 58.06135492117597
+      },
+      "vs_zero_shot": {
+        "n": 4319,
+        "accuracy_a": 64.62144014818244,
+        "accuracy_b": 33.05394767307247,
+        "accuracy_diff": 31.567492475109972,
+        "accuracy_diff_ci95": {
+          "low": 30.066855753646678,
+          "high": 33.05863625839315,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "ap_a": 72.54615065883459,
+        "ap_b": 53.372570067502934,
+        "ap_diff": 19.173580591331657,
+        "ap_diff_ci95": {
+          "low": 16.15714331127387,
+          "high": 22.085531183944653,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_answerable": 24.342194955691888,
+        "accuracy_diff_answerable_ci95": {
+          "low": 22.71966598500341,
+          "high": 25.911213360599863,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_unanswerable": 46.87364620938628,
+        "accuracy_diff_unanswerable_ci95": {
+          "low": 43.73212996389892,
+          "high": 49.85577617328519,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      },
+      "result": "c4e-4-nounans",
+      "vs_full_training": {
+        "partner": "lr4e-4",
+        "n": 4319,
+        "accuracy_a": 64.62144014818244,
+        "accuracy_b": 71.33827274832137,
+        "accuracy_diff": -6.716832600138929,
+        "accuracy_diff_ci95": {
+          "low": -7.612873350312569,
+          "high": -5.732808520490849,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "ap_a": 72.54615065883459,
+        "ap_b": 83.79636156600762,
+        "ap_diff": -11.250210907173027,
+        "ap_diff_ci95": {
+          "low": -12.715814574207538,
+          "high": -9.696087411703354,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_answerable": -1.8984321745057942,
+        "accuracy_diff_answerable_ci95": {
+          "low": -2.846625766871165,
+          "high": -0.9676209952283575,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "accuracy_diff_unanswerable": -16.924187725631768,
+        "accuracy_diff_unanswerable_ci95": {
+          "low": -18.831046931407943,
+          "high": -15.046931407942239,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        }
+      }
+    }
+  ]
+}

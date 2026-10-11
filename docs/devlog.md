@@ -2,6 +2,43 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-11: Batch session 3, part 2: the ablation, val, and the Stage 3 headline
+
+Session 5.75 GPU h, no errors; splits identical to the committed lists. `c4e-4-s3` on dev at
+epoch 2: 67.96, AP 80.09, threshold 0.681.
+
+**No-unanswerable ablation** (`c4e-4-nounans`: lr4e-4, 2 epochs, examples labeled unanswerable
+dropped): 13,492 examples, 3.81 GPU h, 0 non-finite losses. It still has 1,608 "unanswerable"
+targets: questions labeled answerable whose majority human answer is "unanswerable". Dev 61.92
+[59.97, 63.82], AP 66.83.
+
+**Val (4,319 questions, reported once; nothing chosen on it):**
+
+| System | Accuracy [95% CI] | AP (unanswerable) | Says unanswerable |
+|---|---|---|---|
+| Zero-shot SmolVLM2-500M, 1,024 px | 33.05 [31.67, 34.33] | 53.37 | 12.8% |
+| Fine-tuned, chosen seed (lr4e-4 e2) | 71.34 [70.07, 72.62] | 83.80 | 49.2% |
+| Fine-tuned, seed 20260929 | 70.74 [69.39, 71.89] | 83.85 | 48.5% |
+| Fine-tuned, seed 20260930 | 70.79 [69.48, 72.01] | 83.72 | 47.9% |
+| **3 seeds, mean ± std** | **70.96 ± 0.33** | **83.79 ± 0.07** | |
+| Ablation: no unanswerable examples | 64.62 [63.29, 65.88] | 72.55 | 36.2% |
+
+- Gain over zero-shot (paired, same questions): +37.9 ± 0.3 accuracy, +30.4 AP across seeds.
+  On answerable questions alone: +25.8 to +26.2. Credit from real answers there is 43.4–44.1
+  (zero-shot 30.1); accuracy when answering 60.8–61.3.
+- F1 at the dev threshold: 76.20 ± 0.42 across seeds (official F1 at 0.5: 76.08–76.45).
+- The chosen seed is the best of the three on val (71.34 vs 70.74, 70.79). It was chosen on dev
+  before val existed; the other seeds show the expected spread.
+- **Ablation vs full training** (paired): −6.72 accuracy [−7.61, −5.73], −11.25 AP [−12.72,
+  −9.70]. Most of the loss is on unanswerable questions (−16.9). On answerable questions it loses
+  only 1.9, and its credit from real answers is *higher* (46.4 vs 43.4): it answers more often
+  (says unanswerable on 20.0% of answerable questions vs 29.2%). Training on the unanswerable
+  examples buys abstention partly at the cost of some answers.
+- Weaknesses: "number" questions are the weakest type (57.5–62.5) and the most seed-sensitive.
+  The model says "unanswerable" on 28–29% of answerable questions.
+
+Stage 3 is complete. Next: Mac Stage 4 with the pinned adapter, then the app with the 4-bit model.
+
 ## 2026-10-09: Batch session 3, part 1: both seed replicates trained
 
 An accidental rerun of the session 2 notebook on 2026-10-08 (the editor still held it) cost 0.45
