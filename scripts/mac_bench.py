@@ -63,6 +63,37 @@ def thermal() -> dict:
     return {k: h.get(k) for k in ("power_source", "cpu_speed_limit_pct")}
 
 
+def describe_mismatch(tokenizer, hf_ids: list[int], mlx_ids: list[int], size) -> dict:
+    """Where two prompts' token IDs part ways. Only special tokens (image and template markers)
+    are shown by name; question text is masked, so nothing from VizWiz is printed or stored."""
+    special = set(tokenizer.all_special_ids) | set(tokenizer.added_tokens_decoder)
+
+    def show(ids: list[int]) -> list[str]:
+        return [tokenizer.convert_ids_to_tokens(i) if i in special else "·" for i in ids]
+
+    def counts(ids: list[int]) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for i in ids:
+            if i in special:
+                t = tokenizer.convert_ids_to_tokens(i)
+                out[t] = out.get(t, 0) + 1
+        return out
+
+    n = min(len(hf_ids), len(mlx_ids))
+    at = next((k for k in range(n) if hf_ids[k] != mlx_ids[k]), n)
+    lo = max(0, at - 4)
+    return {
+        "image_size": list(size),
+        "tokens_transformers": len(hf_ids),
+        "tokens_mlx": len(mlx_ids),
+        "first_difference_at": at,
+        "transformers_from_there": show(hf_ids[lo : at + 8]),
+        "mlx_from_there": show(mlx_ids[lo : at + 8]),
+        "special_counts_transformers": counts(hf_ids),
+        "special_counts_mlx": counts(mlx_ids),
+    }
+
+
 def cmd_self_test(args: argparse.Namespace) -> int:
     from transformers import AutoProcessor
 
@@ -84,11 +115,14 @@ def cmd_self_test(args: argparse.Namespace) -> int:
             text=[text], images=[[image]], **long_edge_kwargs(hf, s["long_edge"])
         ).input_ids[0]
         mlx_ids = enc["input_ids"][0].tolist()
+        hf_ids = [int(i) for i in hf_ids]
         c = {
             "p_cached_vs_uncached_abs_diff": abs(cached - uncached),
-            "prompt_ids_match_transformers": list(hf_ids) == mlx_ids,
+            "prompt_ids_match_transformers": hf_ids == mlx_ids,
             "prompt_tokens": len(mlx_ids),
         }
+        if hf_ids != mlx_ids:
+            c["mismatch"] = describe_mismatch(hf.tokenizer, hf_ids, mlx_ids, image.size)
         ok &= c["p_cached_vs_uncached_abs_diff"] <= SELF_TEST_TOLERANCE
         ok &= c["prompt_ids_match_transformers"]
         checks.append(c)
