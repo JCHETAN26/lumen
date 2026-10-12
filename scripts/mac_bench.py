@@ -95,14 +95,19 @@ def describe_mismatch(tokenizer, hf_ids: list[int], mlx_ids: list[int], size) ->
 
 
 def cmd_self_test(args: argparse.Namespace) -> int:
-    from transformers import AutoProcessor
+    from transformers import SmolVLMProcessor
 
     from lumen.zeroshot.backends import long_edge_kwargs
 
     records, images = load_mac_sample(SAMPLE_DIR, SPLITS_DIR / "mac_sample_val.txt")
     backend, s, _, _ = load_backend(args.model, args.variant)
     pin = load_pins().models[s["describe"]["model_key"]]
-    hf = AutoProcessor.from_pretrained(pin.repo, revision=pin.revision)
+    # Not AutoProcessor: importing mlx-vlm patches AutoProcessor.from_pretrained to return
+    # mlx-vlm's own SmolVLM processor, which would make this check compare mlx-vlm with itself
+    # (and, loaded from a Hub ID, with default settings). The Kaggle runs used this class.
+    hf = SmolVLMProcessor.from_pretrained(pin.repo, revision=pin.revision)
+    if not type(hf).__module__.startswith("transformers."):
+        raise SystemExit(f"reference processor is {type(hf).__module__}, not transformers'")
     checks, ok = [], True
     for r in records[:2]:
         msgs = chat_messages(r["question"], s["prompt_key"])
