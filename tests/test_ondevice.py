@@ -8,6 +8,7 @@ self-test` checks it there before any benchmark.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import random
@@ -106,6 +107,21 @@ def test_set_long_edge_validates_like_kaggle() -> None:
     q = FakeProcessor()
     set_long_edge(q, None)
     assert q.image_processor.size == {"longest_edge": 2048}
+
+
+def test_set_long_edge_on_a_transformers_size_dict() -> None:
+    @dataclasses.dataclass
+    class SizeDict:  # transformers 5: a dataclass with get(), not a mapping
+        longest_edge: int | None = None
+        height: int | None = None
+
+        def get(self, key, default=None):
+            return getattr(self, key, None) or default
+
+    p = FakeProcessor()
+    p.image_processor.size = SizeDict(longest_edge=2048)
+    set_long_edge(p, 1024)
+    assert p.image_processor.size == SizeDict(longest_edge=1024)
 
 
 class TimedFake(FakeBackend):

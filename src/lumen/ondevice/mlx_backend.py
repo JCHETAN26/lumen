@@ -16,6 +16,7 @@ Batch size is 1: the app answers one photo at a time.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import time
 from pathlib import Path
@@ -44,7 +45,12 @@ def set_long_edge(processor: Any, long_edge: int | None) -> None:
         raise ValueError(f"{type(ip).__name__} has no SmolVLM-style long-edge tiling")
     if long_edge % tile or not tile <= long_edge <= default:
         raise ValueError(f"long edge {long_edge} px must be a multiple of {tile} up to {default}")
-    ip.size = {**ip.size, "longest_edge": long_edge}
+    # transformers 5 keeps size as a SizeDict dataclass (not a mapping); older ones, a dict.
+    size = ip.size
+    if dataclasses.is_dataclass(size):
+        ip.size = dataclasses.replace(size, longest_edge=long_edge)
+    else:
+        ip.size = {**size, "longest_edge": long_edge}
 
 
 class MLXBackend:
