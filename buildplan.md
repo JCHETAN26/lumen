@@ -140,7 +140,11 @@ dev evals, 4-8 h of replicates, ~1.5 h of val evals; rescaled by the speed test 
 **Done when:** fine-tuned vs. zero-shot 500M (and the other baselines) on val, with seeds and CIs;
 adapter pinned.
 
-## Stage 4: 4-bit quantization and on-device benchmarks (Mac) (code done; runs after Stage 3)
+## Stage 4: 4-bit quantization and on-device benchmarks (Mac) (done 2026-10-11; final test left)
+
+Status 2026-10-11: run for `lr4e-4-e2` (self-test passed; fp16 70.90, 8-bit 70.20, 4-bit 68.37 on
+the Mac sample; ≈ 0.7–0.8 s per answer). 4-bit ships as planned; see the devlog. The resolution ×
+bits grid below was not run: 1,024 px was fixed on dev in Stage 3. Left: the sealed final test.
 
 Status 2026-10-06: `scripts/mac_prepare.py` (merge + MLX fp16/8bit/4bit) and `scripts/mac_bench.py`
 (self-test, bench, summary) written; non-MLX logic unit-tested; MLX code verified only by the

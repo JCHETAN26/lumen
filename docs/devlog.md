@@ -2,6 +2,49 @@
 
 Key decisions and anything that went wrong, newest first.
 
+## 2026-10-11: Stage 4 on the Mac: lr4e-4-e2 at fp16, 8-bit and 4-bit
+
+MacBook Air M2 8 GB, the 300-question Mac sample (from val), 1,024 px, the abstain prompt.
+
+| Variant | Size | Accuracy | vs MLX fp16 [95% CI] | AP | Same answer as fp16 | Total p50/p90 | Peak |
+|---|---|---|---|---|---|---|---|
+| fp16 | 971 MiB | 70.90 | (reference) | 86.40 | | 0.71 / 0.79 s | 1.78 GB |
+| 8-bit | 595 MiB | 70.20 | −0.70 [−1.70, +0.03] | 86.44 | 97.7% | 0.72 / 0.74 s | 1.37 GB |
+| 4-bit | 394 MiB | 68.37 | −2.53 [−4.77, −0.40] | 86.55 | 83.0% | 0.84 / 0.92 s | 1.16 GB |
+
+- **4-bit costs real accuracy** (−2.5, CI excludes 0) and changes 17% of answers; 8-bit costs
+  nothing measurable. Answerability isn't hurt at either: AP is flat (Δ +0.04, +0.15).
+- **4-bit is slower, not faster.** Time to first token (≈ 400 image + text tokens of prefill) is
+  0.68 s at fp16, 0.69 s at 8-bit and 0.82 s at 4-bit: prefill is compute-bound and dequantizing
+  adds work. Decoding is faster at lower precision (128 / 189 / 232 tokens/s median), but answers
+  are a few tokens long. 4-bit's only win is memory (1.16 vs 1.78 GB peak).
+- **The 1,024 px choice paid off on device:** answers in ≈ 0.7 s, against TTFT ≈ 1.8–2.2 s at
+  the default 2,048 px in the early MLX check.
+- **MLX vs the Kaggle (transformers) fp16 run on the same 300 IDs:** 70.90 vs 68.70 (+2.2
+  [−0.07, +4.37]), but exact answers agree on only 80.7% and abstentions on 89.0%. The prompts'
+  token IDs are identical (self-test), so this is the port: mlx-vlm's processor resizes with PIL
+  where Kaggle used the torchvision path, and Metal fp16 kernels differ from CUDA's. The Mac
+  pipeline isn't a bit-for-bit replica of what was evaluated on Kaggle; on this sample it isn't
+  worse.
+- **Conditions, stated as recorded:** all three benches ran **on battery** (the runbook asked for
+  mains power), load average ≈ 2.5–3, no CPU speed limit reported before, between or after.
+  Latency on mains may differ slightly.
+
+**Which variant ships: 4-bit, as planned.** The plan fixed 4-bit before any Mac result, and its
+rule is that a shipping choice is made on dev-derived data, never val. The Mac sample is val, so
+switching to 8-bit on these numbers would be choosing on val. The 8-bit result is reported as a
+finding: on this sample it's the better trade (no measurable loss, faster, 1.37 GB). Choosing it
+properly needs a dev-derived Mac sample.
+
+**Two self-test bugs, both in the test, not the model.** (1) transformers 5 keeps the image
+processor's `size` as a `SizeDict` dataclass, not a mapping, and setting the long edge crashed.
+(2) Importing mlx-vlm patches `AutoProcessor.from_pretrained` for smolvlm to return its own
+processor; loaded from a Hub ID that one falls back to 169 tokens per tile and ignores the
+long-edge cap. The "transformers" reference was therefore mlx-vlm's processor at defaults (2,293
+tokens vs MLX's 398), and the test failed. The reference is now transformers' `SmolVLMProcessor`
+(the class Kaggle's AutoProcessor resolves to), checked by module. Both failed records are
+committed (`self_test_lr4e-4-e2_fp16.json`, `.1.json`); `.2.json` passed.
+
 ## 2026-10-11: Batch session 3, part 2: the ablation, val, and the Stage 3 headline
 
 Session 5.75 GPU h, no errors; splits identical to the committed lists. `c4e-4-s3` on dev at

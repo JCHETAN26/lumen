@@ -20,12 +20,12 @@ model and the pinned adapter, and nothing trains. One heavy job at a time: the A
 
 ```bash
 G="uv run --group gpu --group mlx python"
-$G scripts/mac_prepare.py --adapter lr2e-4-e1          # merge (CPU, fp32 -> fp16) + MLX fp16/8bit/4bit
-$G scripts/mac_bench.py self-test --model lr2e-4-e1    # must print PASSED
-$G scripts/mac_bench.py bench --model lr2e-4-e1 --variant fp16
-$G scripts/mac_bench.py bench --model lr2e-4-e1 --variant 8bit
-$G scripts/mac_bench.py bench --model lr2e-4-e1 --variant 4bit
-$G scripts/mac_bench.py summary --model lr2e-4-e1 --kaggle-result results/finetune/lr2e-4/val-e1.json
+$G scripts/mac_prepare.py --adapter lr4e-4-e2          # merge (CPU, fp32 -> fp16) + MLX fp16/8bit/4bit
+$G scripts/mac_bench.py self-test --model lr4e-4-e2    # must print PASSED
+$G scripts/mac_bench.py bench --model lr4e-4-e2 --variant fp16
+$G scripts/mac_bench.py bench --model lr4e-4-e2 --variant 8bit
+$G scripts/mac_bench.py bench --model lr4e-4-e2 --variant 4bit
+$G scripts/mac_bench.py summary --model lr4e-4-e2 --kaggle-result results/finetune/lr4e-4/val-e2.json
 ```
 
 `--base` / `--model base` does the same for the zero-shot SmolVLM2-500M (same 1,024 px and prompt).

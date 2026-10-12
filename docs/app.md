@@ -7,8 +7,8 @@ question, and hear or read a short answer, or "I can't tell from this photo" wit
 
 ```bash
 cd app/web && npm ci && npm run build && cd ../..
-uv run --group app --group mlx python -m lumen.app.server --model lr2e-4-e1 --variant 4bit \
-    --threshold <dev-chosen threshold from results/finetune/choice.json>
+uv run --group app --group mlx python -m lumen.app.server --model lr4e-4-e2 --variant 4bit \
+    --threshold 0.672   # dev-chosen, results/finetune/choice.json
 # then open http://localhost:8765
 ```
 
