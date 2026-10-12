@@ -1,0 +1,98 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-12T00:12:16+00:00",
+    "git": {
+      "commit": "a8cfa250e27d8960e1dbc900a71c1b18a66907c9",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "arm64",
+      "os": "Darwin 25.5.0",
+      "logical_cpus": 8,
+      "load_average_1m_5m_15m": [
+        4.4,
+        3.38,
+        2.98
+      ],
+      "chip": "Apple M2",
+      "memory_gib": 8.0,
+      "os_version": "26.5.2",
+      "model": "Mac14,2",
+      "power_source": "battery",
+      "cpu_speed_limit_pct": null,
+      "gpus": [],
+      "kaggle": false
+    },
+    "python": "3.11.13",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": "0.32.2",
+      "mlx-vlm": "0.7.3",
+      "mlx-lm": null
+    },
+    "argv": [
+      "scripts/mac_prepare.py",
+      "--adapter",
+      "lr4e-4-e2"
+    ]
+  },
+  "stage": "mac_prepare",
+  "model": "lr4e-4-e2",
+  "base": {
+    "key": "smolvlm2-500m",
+    "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467"
+  },
+  "adapter": {
+    "key": "lr4e-4-e2",
+    "repo": "cjitendr/lumen-adapter",
+    "revision": "3855491a2282b3033b5e45d7cae72a38093e5edc",
+    "path": "runs/lr4e-4/epoch-2",
+    "files": {
+      "README.md": "659f16d7cb808d7e8e4d1e532c74a786a1c42e37af20a716e9c9d2167dc9e6af",
+      "adapter_config.json": "2b2e166cd18643a2f2fc7756cb7eacfd467cc835d69b8daf507ddc3a12d34e2f",
+      "adapter_model.safetensors": "b1e370bf535f70d08d65caae4fab725fb5348070008340f55850f922b0611864",
+      "lumen_adapter.json": "77242e4f6ebe128d950366b75905fd308d0fed976904170ba75d51724dceb799"
+    }
+  },
+  "merged_weights_sha256": {
+    "model.safetensors": "dd35a9cf4d01c1664b7b9c3fb398484f19fe42c549527fed8c6de137897914ee"
+  },
+  "merge_seconds": 41.8,
+  "variants": {
+    "fp16": {
+      "name": "fp16",
+      "bits": null,
+      "group_size": null,
+      "path": "models/mlx/lr4e-4-e2/fp16",
+      "size_on_disk_bytes": 1018619202,
+      "convert_seconds": 2.0
+    },
+    "8bit": {
+      "name": "8bit",
+      "bits": 8,
+      "group_size": 64,
+      "path": "models/mlx/lr4e-4-e2/8bit",
+      "size_on_disk_bytes": 624033880,
+      "convert_seconds": 1.6
+    },
+    "4bit": {
+      "name": "4bit",
+      "bits": 4,
+      "group_size": 64,
+      "path": "models/mlx/lr4e-4-e2/4bit",
+      "size_on_disk_bytes": 413540196,
+      "convert_seconds": 1.5
+    }
+  },
+  "quantization_scope": "language model and connector; vision encoder kept in fp16 (mlx_vlm.utils.skip_multimodal_module)"
+}

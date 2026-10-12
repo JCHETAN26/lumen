@@ -1,0 +1,204 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-12T00:50:04+00:00",
+    "git": {
+      "commit": "987dcbdb16901c6425277defa7fc529e3e4fff7f",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "arm64",
+      "os": "Darwin 25.5.0",
+      "logical_cpus": 8,
+      "load_average_1m_5m_15m": [
+        2.22,
+        2.5,
+        2.94
+      ],
+      "chip": "Apple M2",
+      "memory_gib": 8.0,
+      "os_version": "26.5.2",
+      "model": "Mac14,2",
+      "power_source": "battery",
+      "cpu_speed_limit_pct": null,
+      "gpus": [],
+      "kaggle": false
+    },
+    "python": "3.11.13",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": "0.32.2",
+      "mlx-vlm": "0.7.3",
+      "mlx-lm": null
+    },
+    "argv": [
+      "scripts/mac_bench.py",
+      "self-test",
+      "--model",
+      "lr4e-4-e2"
+    ]
+  },
+  "stage": "mac_self_test",
+  "model": "lr4e-4-e2",
+  "variant": "fp16",
+  "passed": false,
+  "tolerance": 0.002,
+  "checks": [
+    {
+      "p_cached_vs_uncached_abs_diff": 7.883138586350924e-12,
+      "prompt_ids_match_transformers": false,
+      "prompt_tokens": 398,
+      "mismatch": {
+        "image_size": [
+          968,
+          1296
+        ],
+        "tokens_transformers": 2293,
+        "tokens_mlx": 398,
+        "first_difference_at": 69,
+        "transformers_from_there": [
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>"
+        ],
+        "mlx_from_there": [
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<fake_token_around_image>",
+          "<row_1_col_2>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>"
+        ],
+        "special_counts_transformers": {
+          "<|im_start|>": 1,
+          "<fake_token_around_image>": 14,
+          "<row_1_col_1>": 1,
+          "<image>": 2197,
+          "<row_1_col_2>": 1,
+          "<row_1_col_3>": 1,
+          "<row_2_col_1>": 1,
+          "<row_2_col_2>": 1,
+          "<row_2_col_3>": 1,
+          "<row_3_col_1>": 1,
+          "<row_3_col_2>": 1,
+          "<row_3_col_3>": 1,
+          "<row_4_col_1>": 1,
+          "<row_4_col_2>": 1,
+          "<row_4_col_3>": 1,
+          "<global-img>": 1,
+          "<end_of_utterance>": 1
+        },
+        "special_counts_mlx": {
+          "<|im_start|>": 1,
+          "<fake_token_around_image>": 6,
+          "<row_1_col_1>": 1,
+          "<image>": 320,
+          "<row_1_col_2>": 1,
+          "<row_2_col_1>": 1,
+          "<row_2_col_2>": 1,
+          "<global-img>": 1,
+          "<end_of_utterance>": 1
+        }
+      }
+    },
+    {
+      "p_cached_vs_uncached_abs_diff": 8.921602345779434e-10,
+      "prompt_ids_match_transformers": false,
+      "prompt_tokens": 400,
+      "mismatch": {
+        "image_size": [
+          2592,
+          1936
+        ],
+        "tokens_transformers": 2294,
+        "tokens_mlx": 400,
+        "first_difference_at": 69,
+        "transformers_from_there": [
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>"
+        ],
+        "mlx_from_there": [
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<fake_token_around_image>",
+          "<row_1_col_2>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>",
+          "<image>"
+        ],
+        "special_counts_transformers": {
+          "<|im_start|>": 1,
+          "<fake_token_around_image>": 14,
+          "<row_1_col_1>": 1,
+          "<image>": 2197,
+          "<row_1_col_2>": 1,
+          "<row_1_col_3>": 1,
+          "<row_1_col_4>": 1,
+          "<row_2_col_1>": 1,
+          "<row_2_col_2>": 1,
+          "<row_2_col_3>": 1,
+          "<row_2_col_4>": 1,
+          "<row_3_col_1>": 1,
+          "<row_3_col_2>": 1,
+          "<row_3_col_3>": 1,
+          "<row_3_col_4>": 1,
+          "<global-img>": 1,
+          "<end_of_utterance>": 1
+        },
+        "special_counts_mlx": {
+          "<|im_start|>": 1,
+          "<fake_token_around_image>": 6,
+          "<row_1_col_1>": 1,
+          "<image>": 320,
+          "<row_1_col_2>": 1,
+          "<row_2_col_1>": 1,
+          "<row_2_col_2>": 1,
+          "<global-img>": 1,
+          "<end_of_utterance>": 1
+        }
+      }
+    }
+  ],
+  "thermal": {
+    "power_source": "battery",
+    "cpu_speed_limit_pct": null
+  }
+}

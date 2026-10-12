@@ -1,0 +1,257 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-10-12T01:03:03+00:00",
+    "git": {
+      "commit": "935b2c38fb4229a9cb890c16e40e3fa3878990cb",
+      "dirty": false
+    },
+    "hardware": {
+      "machine": "arm64",
+      "os": "Darwin 25.5.0",
+      "logical_cpus": 8,
+      "load_average_1m_5m_15m": [
+        2.69,
+        3.02,
+        2.97
+      ],
+      "chip": "Apple M2",
+      "memory_gib": 8.0,
+      "os_version": "26.5.2",
+      "model": "Mac14,2",
+      "power_source": "battery",
+      "cpu_speed_limit_pct": null,
+      "gpus": [],
+      "kaggle": false
+    },
+    "python": "3.11.13",
+    "libraries": {
+      "lumen": "0.1.0",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1",
+      "pillow": "12.3.0",
+      "torch": "2.14.0",
+      "transformers": "5.17.0",
+      "peft": "0.21.2",
+      "trl": null,
+      "accelerate": "1.15.0",
+      "bitsandbytes": null,
+      "mlx": "0.32.2",
+      "mlx-vlm": "0.7.3",
+      "mlx-lm": null
+    },
+    "argv": [
+      "scripts/mac_bench.py",
+      "bench",
+      "--model",
+      "lr4e-4-e2",
+      "--variant",
+      "fp16"
+    ]
+  },
+  "stage": "mac_bench",
+  "model": "lr4e-4-e2",
+  "variant": {
+    "name": "fp16",
+    "bits": null,
+    "group_size": null
+  },
+  "backend": {
+    "model_key": "smolvlm2-500m",
+    "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467",
+    "adapter": {
+      "key": "lr4e-4-e2",
+      "revision": "3855491a2282b3033b5e45d7cae72a38093e5edc",
+      "path": "runs/lr4e-4/epoch-2"
+    },
+    "variant": "fp16",
+    "backend": "mlx",
+    "stand_in": false,
+    "generation": {
+      "max_new_tokens": 16,
+      "do_sample": false,
+      "num_beams": 1,
+      "repetition_penalty": 1.0
+    },
+    "unanswerable_token_variants": [
+      [
+        419,
+        11247,
+        515
+      ],
+      [
+        551,
+        11247,
+        515
+      ],
+      [
+        810,
+        11247,
+        515
+      ],
+      [
+        3706,
+        11247,
+        515
+      ]
+    ],
+    "image_longest_edge": 1024
+  },
+  "image_longest_edge": 1024,
+  "image_tokens": {
+    "questions": 300,
+    "mean": 319.6
+  },
+  "size_on_disk_bytes": 1018619202,
+  "load_seconds": 3.76,
+  "accuracy": {
+    "metrics": {
+      "n": 300,
+      "question_ids_sha256": "87c314d5204707237279216e4ed8d8fa3ccb2e93b4d22c8452f8c023452cc18d",
+      "accuracy": {
+        "overall": 70.90000000000003,
+        "overall_official": 70.9,
+        "ci95": {
+          "low": 66.36666666666666,
+          "high": 75.83333333333333,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "per_answer_type": {
+          "number": 10.0,
+          "other": 57.75,
+          "unanswerable": 98.23,
+          "yes/no": 72.14
+        },
+        "per_answer_type_n": {
+          "number": 3,
+          "other": 187,
+          "unanswerable": 96,
+          "yes/no": 14
+        },
+        "answerable_only": 58.03921568627452,
+        "unanswerable_only": 98.22916666666667
+      },
+      "answerability": {
+        "average_precision": 86.39962821841316,
+        "average_precision_official": 86.4,
+        "ap_ci95": {
+          "low": 80.01945503564117,
+          "high": 92.48780355908535,
+          "level": 0.95,
+          "resamples": 1000,
+          "skipped": 0,
+          "seed": 20260928
+        },
+        "f1_at_0_5_official": 76.52,
+        "positive_rate": 0.32,
+        "oracle_threshold_this_split": {
+          "threshold": 0.6839193704046918,
+          "f1": 83.5820895522388
+        }
+      },
+      "said_unanswerable_rate": 0.5433333333333333,
+      "abstained_by_rule_rate": 0.0
+    },
+    "run": {
+      "new": 300,
+      "resumed": 0,
+      "seconds": 416.4,
+      "sec_per_question": 1.3881
+    },
+    "predictions": {
+      "local_file": "fp16.predictions.jsonl",
+      "sha256": "010a5a58ec86b49a3902c616ed8f0e818af4c2a2e4ab895c8a3c19f79fb0a8f4",
+      "stored": "local only (Mac, gitignored predictions/; never uploaded or committed)"
+    }
+  },
+  "latency": {
+    "questions": 20,
+    "repeats": 3,
+    "warmup_questions": 2,
+    "ttft_s": {
+      "n": 60,
+      "median": 0.680449666979257,
+      "p90": 0.7514487878303043,
+      "mean": 0.6893507451517508,
+      "min": 0.6282842500368133,
+      "max": 0.7928000829415396
+    },
+    "total_s": {
+      "n": 60,
+      "median": 0.7120136664598249,
+      "p90": 0.7905348006053827,
+      "mean": 0.7259869520688275,
+      "min": 0.6624840409494936,
+      "max": 0.8374560000374913
+    },
+    "preprocess_s": {
+      "n": 60,
+      "median": 0.06536577100632712,
+      "p90": 0.08171925868373364,
+      "mean": 0.06511131808705008,
+      "min": 0.04061383299995214,
+      "max": 0.09060474997386336
+    },
+    "generation_tps": {
+      "n": 60,
+      "median": 128.0188614962037,
+      "p90": 148.87849208562398,
+      "mean": 132.55185468609275,
+      "min": 91.14671034215431,
+      "max": 193.34336225069052
+    },
+    "prompt_tps": {
+      "n": 60,
+      "median": 644.1260610932259,
+      "p90": 681.3962620840931,
+      "mean": 637.5154048850005,
+      "min": 540.9974174659341,
+      "max": 708.9348514619278
+    },
+    "prompt_tokens": {
+      "n": 60,
+      "median": 393.0,
+      "p90": 407.3,
+      "mean": 396.05,
+      "min": 388.0,
+      "max": 412.0
+    },
+    "generation_tokens": {
+      "n": 60,
+      "median": 4.0,
+      "p90": 4.0,
+      "mean": 3.7,
+      "min": 2.0,
+      "max": 4.0
+    },
+    "peak_memory_gb_max": 1.77693086,
+    "total_s_median_by_repeat": [
+      0.7057909789728001,
+      0.7668696660548449,
+      0.7018723954679444
+    ]
+  },
+  "mlx_peak_memory_gib": 1.655,
+  "process_max_rss_gib": 0.737,
+  "thermal": {
+    "cool_down": {
+      "cpu_speed_limit_pct": null,
+      "waited_s": 0.0
+    },
+    "before": {
+      "power_source": "battery",
+      "cpu_speed_limit_pct": null
+    },
+    "after_accuracy": {
+      "power_source": "battery",
+      "cpu_speed_limit_pct": null
+    },
+    "after": {
+      "power_source": "battery",
+      "cpu_speed_limit_pct": null
+    }
+  }
+}
