@@ -67,8 +67,10 @@ targets: questions labeled answerable whose majority human answer is "unanswerab
 | Ablation: no unanswerable examples | 64.62 [63.29, 65.88] | 72.55 | 36.2% |
 
 - Gain over zero-shot (paired, same questions): +37.9 ± 0.3 accuracy, +30.4 AP across seeds.
-  On answerable questions alone: +25.8 to +26.2. Credit from real answers there is 43.4–44.1
-  (zero-shot 30.1); accuracy when answering 60.8–61.3.
+  On answerable questions alone: +25.8 to +26.2. Credit from real answers there is 43.4–44.1;
+  accuracy when answering 60.8–61.3. (Correction, 2026-10-20: this line first said "zero-shot
+  30.1" next to these, but 30.09 is the zero-shot figure on *dev*; the val zero-shot run has no
+  answerable breakdown recorded. The matched dev pair is 30.09 → 43.42 for lr4e-4 epoch 2.)
 - F1 at the dev threshold: 76.20 ± 0.42 across seeds (official F1 at 0.5: 76.08–76.45).
 - The chosen seed is the best of the three on val (71.34 vs 70.74, 70.79). It was chosen on dev
   before val existed; the other seeds show the expected spread.
